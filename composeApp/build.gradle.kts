@@ -73,9 +73,14 @@ val keystoreProperties = Properties().apply {
     if (file.exists()) file.inputStream().use(::load)
 }
 
+// Blank counts as absent. CI sets these variables unconditionally and leaves them empty
+// when no signing secrets are configured, and an empty string is a path -- `file("")`
+// resolves to the project directory and fails the build with something that looks nothing
+// like "you have no keystore".
 fun signingSecret(property: String, environment: String): String? =
-    keystoreProperties.getProperty(property)
-        ?: providers.environmentVariable(environment).orNull
+    (keystoreProperties.getProperty(property)
+        ?: providers.environmentVariable(environment).orNull)
+        ?.takeIf { it.isNotBlank() }
 
 val releaseKeystore: String? = signingSecret("storeFile", "POCKETFUL_KEYSTORE_FILE")
 
