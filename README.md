@@ -104,6 +104,12 @@ The build resolves its signing key in this order:
    `POCKETFUL_KEY_PASSWORD` environment variables, which CI fills from repository secrets, or
 3. the debug key, so a fresh clone can still `assembleRelease`.
 
+**The debug fallback is not good enough for CI.** A GitHub runner is thrown away after every
+job and generates a *fresh* debug keystore each time, so two releases built that way are
+signed with two different keys and neither can update the other. The release workflow
+therefore refuses to publish a tag unless a real key is configured — it fails the job rather
+than shipping an APK that cannot update anybody.
+
 To sign properly, generate a key once and keep it forever:
 
 ```bash
@@ -124,8 +130,9 @@ keyPassword=…
 `POCKETFUL_KEYSTORE_BASE64` (`base64 -w0 pocketful.jks`), `POCKETFUL_KEYSTORE_PASSWORD`,
 `POCKETFUL_KEY_ALIAS`, `POCKETFUL_KEY_PASSWORD`.
 
-Without either, releases are signed with the debug key. That works — updates install fine —
-as long as it stays the debug key, which means CI's, not your laptop's.
+Keep that keystore and its passwords backed up somewhere you will still have them in a
+year. Losing the key does not just mean re-signing: every installed copy has to be
+uninstalled and reinstalled by hand, and its data goes with it.
 
 ## Where the data comes from
 
