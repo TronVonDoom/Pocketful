@@ -94,6 +94,37 @@ data class Release(
     /** The version this release claims to be, with the tag's `v` prefix taken off. */
     val version: String get() = tag.removePrefix("v").removePrefix("V")
 
+    /**
+     * [notes] with its markdown taken back out.
+     *
+     * Release notes are written for a web page, and the panel that shows them is one
+     * `Text`. Rendering markdown there would mean shipping a parser to display four lines;
+     * showing it raw means the user reads `**Settings -> Updates**` with the asterisks in.
+     * Stripping the handful of marks GitHub's notes actually use is the proportionate
+     * answer, and the "View on GitHub" button is there for anything richer.
+     */
+    val notesPlain: String?
+        get() = notes
+            ?.lines()
+            ?.map { line ->
+                line.trim()
+                    .removePrefix(">").trimStart()
+                    .trimStart('#').trimStart()
+                    .replace("**", "")
+                    .replace("__", "")
+                    .replace("`", "")
+                    .replaceFirst(Regex("^[-*+] "), "• ")
+            }
+            // Blank runs are what is left where a heading or a horizontal rule used to be,
+            // and three of them in a five-line panel read as text that failed to load.
+            ?.fold(mutableListOf<String>()) { kept, line ->
+                if (line.isNotEmpty() || kept.lastOrNull()?.isNotEmpty() == true) kept.add(line)
+                kept
+            }
+            ?.joinToString(separator = "\n")
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+
     /** Whether it is worth offering. A release with no APK is news, not an update. */
     val isNewerThanInstalled: Boolean get() = compareVersions(version, AppVersion.NAME) > 0
 

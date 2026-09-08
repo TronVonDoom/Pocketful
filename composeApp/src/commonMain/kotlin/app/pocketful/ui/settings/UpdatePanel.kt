@@ -109,7 +109,7 @@ fun UpdatePanel(modifier: Modifier = Modifier) {
                     color = Ink.TextPrimary,
                     style = MaterialTheme.typography.titleMedium,
                 )
-                release.notes?.let { notes ->
+                release.notesPlain?.let { notes ->
                     Spacer(Modifier.height(6.dp))
                     Text(
                         // Release notes are markdown written for a web page. Six lines of
@@ -135,10 +135,7 @@ fun UpdatePanel(modifier: Modifier = Modifier) {
                                     state = UpdateState.Downloading(release, fraction)
                                 }
                                 state = result.fold(
-                                    // The installer is now in front of the user and this
-                                    // app is on its way out, so there is nothing further
-                                    // to say and no state worth returning to.
-                                    onSuccess = { UpdateState.Handoff },
+                                    onSuccess = { UpdateState.Handoff(release) },
                                     onFailure = { UpdateState.Failed(release, it.readable()) },
                                 )
                             }
@@ -167,10 +164,26 @@ fun UpdatePanel(modifier: Modifier = Modifier) {
                 )
             }
 
-            UpdateState.Handoff -> Status(
-                "Android is installing the update. Reopen Pocketful when it finishes.",
-                Ink.Gain,
-            )
+            is UpdateState.Handoff -> {
+                // Deliberately does not say the update is installed. ACTION_VIEW hands the
+                // APK to the system installer and returns nothing -- from here the app
+                // cannot tell "installing" from "the user hit Cancel" from "Android
+                // refused". Claiming success would be the one place in this panel that
+                // told the user something it had not been told itself.
+                Status("Handed to Android's installer. Reopen Pocketful once it finishes.", Ink.Gain)
+                Spacer(Modifier.height(8.dp))
+                Explainer(
+                    "If Android says the package conflicts with an existing one, this copy " +
+                        "was signed with a different key than the release. Uninstall it " +
+                        "first, then install ${current.release.tag} again.",
+                )
+                Spacer(Modifier.height(12.dp))
+                AppOutlineButton(
+                    label = "Back to updates",
+                    onClick = { state = UpdateState.Found(current.release) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
 
             is UpdateState.Failed -> {
                 Status(current.message, Ink.Loss)
@@ -229,8 +242,8 @@ private sealed interface UpdateState {
     data class Found(val release: Release) : UpdateState
     data class Downloading(val release: Release, val fraction: Float) : UpdateState
 
-    /** The system installer has it now, and this app is about to be replaced. */
-    data object Handoff : UpdateState
+    /** The system installer has it now, and what happens next is out of the app's hands. */
+    data class Handoff(val release: Release) : UpdateState
     data class Failed(val release: Release?, val message: String) : UpdateState
 }
 
