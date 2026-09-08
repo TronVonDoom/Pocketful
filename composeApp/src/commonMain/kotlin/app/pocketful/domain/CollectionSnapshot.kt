@@ -3,7 +3,7 @@ package app.pocketful.domain
 /**
  * An immutable read-model joining the three layers (catalog / collection / market) into
  * something the UI can render without knowing how any of them are stored. Swapping the
- * in-memory sample for a real database means replacing what builds this, nothing else.
+ * in-memory store for a real database means replacing what builds this, nothing else.
  */
 data class CollectionSnapshot(
     val cards: Map<CardId, Card> = emptyMap(),

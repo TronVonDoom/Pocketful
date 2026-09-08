@@ -246,8 +246,8 @@ fun SettingsScreen(
 
                     if (confirmingReset) {
                         Text(
-                            text = "Reset discards every binder and card you have added and restores the " +
-                                "bundled sample collection.",
+                            text = "This deletes every binder, box and card in the app and leaves you " +
+                                "with an empty collection. There is no undo.",
                             color = Ink.TextSecondary,
                             style = MaterialTheme.typography.bodyMedium,
                         )
@@ -255,7 +255,7 @@ fun SettingsScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             AppOutlineButton("Cancel", { confirmingReset = false }, Modifier.weight(1f))
                             AppButton(
-                                label = "Reset",
+                                label = "Delete all",
                                 onClick = {
                                     confirmingReset = false
                                     onReset()
@@ -267,7 +267,7 @@ fun SettingsScreen(
                         }
                     } else {
                         AppOutlineButton(
-                            label = "Reset to sample collection",
+                            label = "Delete everything and start over",
                             onClick = { confirmingReset = true },
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -286,7 +286,7 @@ fun SettingsScreen(
                         // the number on this row is the number the updater compares
                         // against a release tag and cannot drift from it.
                         DetailRow("Pocketful", "v${AppVersion.NAME} (${AppVersion.CODE})")
-                        DetailRow("Price data", if (priced > 0) "TCGplayer via TCGdex" else "sample")
+                        DetailRow("Price data", if (priced > 0) "TCGplayer via TCGdex" else "none yet")
                         DetailRow("Storage", "in memory")
                     }
                     Spacer(Modifier.height(14.dp))

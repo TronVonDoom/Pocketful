@@ -347,14 +347,14 @@ fun HomeScreen(
                     Text(
                         // Says which it is rather than always claiming the pessimistic
                         // case: once a catalog update has run, most of these figures are
-                        // real quotes, and calling them samples would be the app
+                        // real quotes, and hedging on all of them would be the app
                         // underselling the one number it works hardest to get right.
                         text = if (livePrices > 0) {
                             "Prices are the last TCGplayer market quote the catalog returned. " +
                                 "Cards it could not match keep whatever value they had."
                         } else {
-                            "Prices are illustrative sample data. Run a catalog update in " +
-                                "Settings to pull real market rates."
+                            "No market prices yet. Run a catalog update in Settings to pull " +
+                                "quotes for the cards you have recorded."
                         },
                         color = Ink.TextDisabled,
                         style = MaterialTheme.typography.bodySmall,

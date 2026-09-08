@@ -2,6 +2,7 @@ package app.pocketful.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,6 +35,7 @@ import app.pocketful.domain.TcgGame
 import app.pocketful.ui.theme.AppIcons
 import app.pocketful.ui.theme.AppShape
 import app.pocketful.ui.theme.Ink
+import app.pocketful.ui.theme.mark
 import coil3.compose.AsyncImage
 
 /**
@@ -51,10 +53,13 @@ import coil3.compose.AsyncImage
  *
  * The plate is drawn rather than fetched. The set and series wordmarks come off TCGdex,
  * but there is no comparable source for the games themselves, and shipping five publisher
- * logos into the binary is a licensing question rather than a layout one. A tinted plate
- * carrying the game's own name is honest about being a placeholder while still giving the
- * grid the colour it needs to be scannable -- and it is one parameter away from becoming
- * a real logo the day those assets exist.
+ * logos into the binary is a licensing question rather than a layout one -- so the tile
+ * carries an emblem of the app's own from [GameMarks] instead, above the game's name.
+ *
+ * The mark is what makes the grid scannable. Five tinted plates of text are five plates
+ * of text: at arm's length the eye gets colour and word-shape and has to read to be sure,
+ * and Magic and Lorcana sat in the same warm-to-cool range as each other. A shape reads
+ * before a word does, which is the entire reason a game has a logo in the first place.
  */
 @Composable
 fun GameTile(
@@ -76,18 +81,33 @@ fun GameTile(
                     ),
                 )
                 .border(1.dp, accent.copy(alpha = 0.22f), AppShape.Medium)
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = game.wordmark,
-                color = accent,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    imageVector = game.mark,
+                    contentDescription = null,
+                    modifier = Modifier.size(34.dp),
+                    tint = accent,
+                )
+                Spacer(Modifier.height(7.dp))
+                // A step down from the headline this used to be: the mark above it is
+                // now doing the identifying, and a wordmark set as loud as the emblem
+                // makes the pair look like two attempts at the same job.
+                Text(
+                    text = game.wordmark,
+                    color = accent,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
 
         Spacer(Modifier.height(9.dp))

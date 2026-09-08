@@ -32,7 +32,6 @@ import app.pocketful.domain.PriceSnapshot
 import app.pocketful.domain.Printing
 import app.pocketful.domain.PrintingId
 import app.pocketful.domain.ReflowMode
-import app.pocketful.domain.SampleData
 import app.pocketful.domain.SlotContent
 import app.pocketful.domain.Supertype
 import app.pocketful.domain.Variant
@@ -68,11 +67,16 @@ val LocalAppSettings = staticCompositionLocalOf { AppSettings() }
  * was, and [Copy.location] is kept in step with the binder slots rather than being a
  * second source of truth that can disagree.
  */
-class CollectionStore(initial: CollectionSnapshot = SampleData.snapshot) {
+class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
 
-    // Reconciled on the way in: a snapshot assembled by hand (the bundled sample, or
-    // anything a future importer produces) sets binder slots but leaves every Copy at its
-    // default Unassigned, which made the whole collection look unfiled.
+    // Empty by default. The app used to open onto a demonstration collection -- five
+    // sets, a stack of binders, invented prices -- which made the first screen look like
+    // someone else's shelf and gave every number on it a reason to be distrusted. A new
+    // install now starts with nothing, and the first binder in it is one the user made.
+    //
+    // Reconciled on the way in anyway: a snapshot assembled by hand -- anything a future
+    // importer or a restored save produces -- sets binder slots but leaves every Copy at
+    // its default Unassigned, which would make the whole collection look unfiled.
     var snapshot by mutableStateOf(initial.reconcileLocations())
         private set
 
@@ -83,8 +87,9 @@ class CollectionStore(initial: CollectionSnapshot = SampleData.snapshot) {
         settings = transform(settings)
     }
 
+    /** Back to a new install: every binder, box and card gone. */
     fun reset() {
-        snapshot = SampleData.snapshot.reconcileLocations()
+        snapshot = CollectionSnapshot()
     }
 
     // ---------------------------------------------------------------- binders

@@ -54,12 +54,21 @@ ADAPTIVE_DENSITIES = {
     "xxxhdpi": 432,
 }
 
-# How much of the adaptive canvas the render occupies. 0.62 keeps it inside the 66% safe
-# circle with a little air -- at exactly 0.66 the gold rim touches the mask on a circle.
-ADAPTIVE_CONTENT = 0.62
+# How much of the adaptive canvas the render occupies.
+#
+# The 66% figure everyone quotes is the *safe zone* -- the part of the 108dp canvas a
+# launcher mask is guaranteed not to cut -- and filling it is a different thing from
+# using it. Only the middle 72dp is ever visible, so artwork at 0.62 of the canvas came
+# out at 67 of those 72dp: a render pressed against the rim of its own tile, with the
+# plate behind it reduced to a hairline. 0.44 puts the render at 48 of the 72 visible
+# dp, which is where a launcher icon's artwork normally sits -- an object on a tile
+# rather than an object shaped like one.
+ADAPTIVE_CONTENT = 0.44
 
-# The legacy bitmap has no mask around it, so it can afford to sit tighter in its square.
-LEGACY_CONTENT = 0.76
+# The legacy bitmap has no mask around it: what is drawn is what is seen. Scaled from
+# ADAPTIVE_CONTENT by 108/72 so the render is the same size relative to the icon's edge
+# whichever of the two a launcher picks up.
+LEGACY_CONTENT = ADAPTIVE_CONTENT * 108 / 72
 
 
 def trimmed(image: Image.Image) -> Image.Image:
@@ -147,7 +156,9 @@ def monochrome(canvas: int) -> Image.Image:
     48px. Colour is irrelevant here -- Android tints the layer to the wallpaper and reads
     only the alpha.
 
-    Geometry is in units of a 108 grid, the same one the adaptive layers use.
+    Geometry is in units of a 108 grid. It is drawn to fill that grid and scaled down to
+    [ADAPTIVE_CONTENT] on the way out, so the numbers below stay about the shape of the
+    mark and nothing here has to be re-tuned when the icon's padding changes.
     """
     grid = 108
     scale = 8
@@ -229,7 +240,11 @@ def monochrome(canvas: int) -> Image.Image:
 
     glyph = Image.new("RGBA", (size, size), (255, 255, 255, 0))
     glyph.putalpha(layer)
-    return glyph.resize((canvas, canvas), Image.LANCZOS)
+    # Drawn at whatever size reads well as geometry, then refitted to the same fraction
+    # of the canvas the foreground uses. What has to match between the two layers is how
+    # much of the tile the finished mark occupies -- a themed icon larger than the colour
+    # icon it stands in for is a jump in size every time a launcher swaps between them.
+    return fit(trimmed(glyph), canvas, ADAPTIVE_CONTENT)
 
 
 def rounded_mask(canvas: int, radius_fraction: float = 0.225) -> Image.Image:

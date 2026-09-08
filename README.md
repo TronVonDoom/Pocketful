@@ -146,8 +146,9 @@ than showing nothing.
 
 ## Status
 
-Early. The collection lives in memory and is rebuilt from the bundled sample on every cold
-start — persistence is the next thing. Everything else in the list above works.
+Early. A new install starts empty and the collection lives in memory, so it is lost on
+every cold start — persistence is the next thing, and the one item on this list that
+matters more than any feature. Everything else described above works.
 
 ## License
 

@@ -6,7 +6,9 @@
     Both layers are bitmaps cut by tools/icons/generate_icons.py from art/icon-source.png.
     The background carries the brand ground and the bloom behind the render, so the dark
     pocket keeps a silhouette on a dark home screen; the foreground is the render alone,
-    inside the 66% safe circle, so no mask shape ever clips the gold rim.
+    sized to about two thirds of the visible tile rather than to the edge of the safe
+    zone. The safe zone says what a mask will not cut, not how big the artwork should be,
+    and a render that fills it leaves the plate behind it as a hairline.
 -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@mipmap/ic_launcher_background" />
