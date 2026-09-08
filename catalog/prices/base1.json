@@ -1,0 +1,613 @@
+{
+ "setId": "base1",
+ "source": "tcgplayer",
+ "fetchedAt": "2026-09-08T16:34:03Z",
+ "cards": [
+  {
+   "id": "base1-1",
+   "usd_cents": {
+    "holofoil": 6942
+   }
+  },
+  {
+   "id": "base1-2",
+   "usd_cents": {
+    "holofoil": 23090
+   }
+  },
+  {
+   "id": "base1-3",
+   "usd_cents": {
+    "holofoil": 6268
+   }
+  },
+  {
+   "id": "base1-4",
+   "usd_cents": {
+    "holofoil": 89719
+   }
+  },
+  {
+   "id": "base1-5",
+   "usd_cents": {
+    "holofoil": 5190
+   }
+  },
+  {
+   "id": "base1-6",
+   "usd_cents": {
+    "holofoil": 4687
+   }
+  },
+  {
+   "id": "base1-7",
+   "usd_cents": {
+    "holofoil": 2043
+   }
+  },
+  {
+   "id": "base1-9",
+   "usd_cents": {
+    "holofoil": 3636
+   }
+  },
+  {
+   "id": "base1-10",
+   "usd_cents": {
+    "holofoil": 7803
+   }
+  },
+  {
+   "id": "base1-11",
+   "usd_cents": {
+    "holofoil": 3964
+   }
+  },
+  {
+   "id": "base1-12",
+   "usd_cents": {
+    "holofoil": 3398
+   }
+  },
+  {
+   "id": "base1-13",
+   "usd_cents": {
+    "holofoil": 3506
+   }
+  },
+  {
+   "id": "base1-14",
+   "usd_cents": {
+    "holofoil": 7568
+   }
+  },
+  {
+   "id": "base1-15",
+   "usd_cents": {
+    "holofoil": 17910
+   }
+  },
+  {
+   "id": "base1-16",
+   "usd_cents": {
+    "holofoil": 5399
+   }
+  },
+  {
+   "id": "base1-17",
+   "usd_cents": {
+    "normal": 593
+   }
+  },
+  {
+   "id": "base1-18",
+   "usd_cents": {
+    "normal": 1864
+   }
+  },
+  {
+   "id": "base1-19",
+   "usd_cents": {
+    "normal": 1085
+   }
+  },
+  {
+   "id": "base1-20",
+   "usd_cents": {
+    "normal": 1025
+   }
+  },
+  {
+   "id": "base1-21",
+   "usd_cents": {
+    "normal": 890
+   }
+  },
+  {
+   "id": "base1-22",
+   "usd_cents": {
+    "normal": 1076
+   }
+  },
+  {
+   "id": "base1-23",
+   "usd_cents": {
+    "normal": 393
+   }
+  },
+  {
+   "id": "base1-24",
+   "usd_cents": {
+    "normal": 310
+   }
+  },
+  {
+   "id": "base1-25",
+   "usd_cents": {
+    "normal": 388
+   }
+  },
+  {
+   "id": "base1-26",
+   "usd_cents": {
+    "normal": 288
+   }
+  },
+  {
+   "id": "base1-27",
+   "usd_cents": {
+    "normal": 173
+   }
+  },
+  {
+   "id": "base1-28",
+   "usd_cents": {
+    "normal": 166
+   }
+  },
+  {
+   "id": "base1-29",
+   "usd_cents": {
+    "normal": 273
+   }
+  },
+  {
+   "id": "base1-30",
+   "usd_cents": {
+    "normal": 781
+   }
+  },
+  {
+   "id": "base1-31",
+   "usd_cents": {
+    "normal": 123
+   }
+  },
+  {
+   "id": "base1-32",
+   "usd_cents": {
+    "normal": 242
+   }
+  },
+  {
+   "id": "base1-33",
+   "usd_cents": {
+    "normal": 185
+   }
+  },
+  {
+   "id": "base1-34",
+   "usd_cents": {
+    "normal": 91
+   }
+  },
+  {
+   "id": "base1-35",
+   "usd_cents": {
+    "normal": 289
+   }
+  },
+  {
+   "id": "base1-36",
+   "usd_cents": {
+    "normal": 337
+   }
+  },
+  {
+   "id": "base1-37",
+   "usd_cents": {
+    "normal": 403
+   }
+  },
+  {
+   "id": "base1-38",
+   "usd_cents": {
+    "normal": 178
+   }
+  },
+  {
+   "id": "base1-39",
+   "usd_cents": {
+    "normal": 308
+   }
+  },
+  {
+   "id": "base1-40",
+   "usd_cents": {
+    "normal": 271
+   }
+  },
+  {
+   "id": "base1-41",
+   "usd_cents": {
+    "normal": 143
+   }
+  },
+  {
+   "id": "base1-42",
+   "usd_cents": {
+    "normal": 502
+   }
+  },
+  {
+   "id": "base1-43",
+   "usd_cents": {
+    "normal": 180
+   }
+  },
+  {
+   "id": "base1-44",
+   "usd_cents": {
+    "normal": 444
+   }
+  },
+  {
+   "id": "base1-45",
+   "usd_cents": {
+    "normal": 130
+   }
+  },
+  {
+   "id": "base1-46",
+   "usd_cents": {
+    "normal": 372
+   }
+  },
+  {
+   "id": "base1-47",
+   "usd_cents": {
+    "normal": 122
+   }
+  },
+  {
+   "id": "base1-48",
+   "usd_cents": {
+    "normal": 131
+   }
+  },
+  {
+   "id": "base1-49",
+   "usd_cents": {
+    "normal": 104
+   }
+  },
+  {
+   "id": "base1-50",
+   "usd_cents": {
+    "normal": 162
+   }
+  },
+  {
+   "id": "base1-51",
+   "usd_cents": {
+    "normal": 150
+   }
+  },
+  {
+   "id": "base1-52",
+   "usd_cents": {
+    "normal": 69
+   }
+  },
+  {
+   "id": "base1-53",
+   "usd_cents": {
+    "normal": 82
+   }
+  },
+  {
+   "id": "base1-54",
+   "usd_cents": {
+    "normal": 141
+   }
+  },
+  {
+   "id": "base1-55",
+   "usd_cents": {
+    "normal": 83
+   }
+  },
+  {
+   "id": "base1-56",
+   "usd_cents": {
+    "normal": 100
+   }
+  },
+  {
+   "id": "base1-57",
+   "usd_cents": {
+    "normal": 154
+   }
+  },
+  {
+   "id": "base1-58",
+   "usd_cents": {
+    "normal": 1601
+   }
+  },
+  {
+   "id": "base1-59",
+   "usd_cents": {
+    "normal": 109
+   }
+  },
+  {
+   "id": "base1-60",
+   "usd_cents": {
+    "normal": 81
+   }
+  },
+  {
+   "id": "base1-61",
+   "usd_cents": {
+    "normal": 99
+   }
+  },
+  {
+   "id": "base1-62",
+   "usd_cents": {
+    "normal": 111
+   }
+  },
+  {
+   "id": "base1-63",
+   "usd_cents": {
+    "normal": 678
+   }
+  },
+  {
+   "id": "base1-64",
+   "usd_cents": {
+    "normal": 83
+   }
+  },
+  {
+   "id": "base1-65",
+   "usd_cents": {
+    "normal": 80
+   }
+  },
+  {
+   "id": "base1-66",
+   "usd_cents": {
+    "normal": 101
+   }
+  },
+  {
+   "id": "base1-67",
+   "usd_cents": {
+    "normal": 412
+   }
+  },
+  {
+   "id": "base1-68",
+   "usd_cents": {
+    "normal": 95
+   }
+  },
+  {
+   "id": "base1-69",
+   "usd_cents": {
+    "normal": 80
+   }
+  },
+  {
+   "id": "base1-70",
+   "usd_cents": {
+    "normal": 908
+   }
+  },
+  {
+   "id": "base1-71",
+   "usd_cents": {
+    "normal": 319
+   }
+  },
+  {
+   "id": "base1-72",
+   "usd_cents": {
+    "normal": 609
+   }
+  },
+  {
+   "id": "base1-73",
+   "usd_cents": {
+    "normal": 567
+   }
+  },
+  {
+   "id": "base1-74",
+   "usd_cents": {
+    "normal": 862
+   }
+  },
+  {
+   "id": "base1-75",
+   "usd_cents": {
+    "normal": 337
+   }
+  },
+  {
+   "id": "base1-76",
+   "usd_cents": {
+    "normal": 666
+   }
+  },
+  {
+   "id": "base1-77",
+   "usd_cents": {
+    "normal": 556
+   }
+  },
+  {
+   "id": "base1-78",
+   "usd_cents": {
+    "normal": 851
+   }
+  },
+  {
+   "id": "base1-79",
+   "usd_cents": {
+    "normal": 346
+   }
+  },
+  {
+   "id": "base1-80",
+   "usd_cents": {
+    "normal": 144
+   }
+  },
+  {
+   "id": "base1-81",
+   "usd_cents": {
+    "normal": 81
+   }
+  },
+  {
+   "id": "base1-82",
+   "usd_cents": {
+    "normal": 190
+   }
+  },
+  {
+   "id": "base1-83",
+   "usd_cents": {
+    "normal": 289
+   }
+  },
+  {
+   "id": "base1-84",
+   "usd_cents": {
+    "normal": 49
+   }
+  },
+  {
+   "id": "base1-85",
+   "usd_cents": {
+    "normal": 214
+   }
+  },
+  {
+   "id": "base1-86",
+   "usd_cents": {
+    "normal": 276
+   }
+  },
+  {
+   "id": "base1-87",
+   "usd_cents": {
+    "normal": 66
+   }
+  },
+  {
+   "id": "base1-88",
+   "usd_cents": {
+    "normal": 195
+   }
+  },
+  {
+   "id": "base1-89",
+   "usd_cents": {
+    "normal": 229
+   }
+  },
+  {
+   "id": "base1-90",
+   "usd_cents": {
+    "normal": 48
+   }
+  },
+  {
+   "id": "base1-91",
+   "usd_cents": {
+    "normal": 49
+   }
+  },
+  {
+   "id": "base1-92",
+   "usd_cents": {
+    "normal": 60
+   }
+  },
+  {
+   "id": "base1-93",
+   "usd_cents": {
+    "normal": 53
+   }
+  },
+  {
+   "id": "base1-94",
+   "usd_cents": {
+    "normal": 38
+   }
+  },
+  {
+   "id": "base1-95",
+   "usd_cents": {
+    "normal": 50
+   }
+  },
+  {
+   "id": "base1-96",
+   "usd_cents": {
+    "normal": 627
+   }
+  },
+  {
+   "id": "base1-97",
+   "usd_cents": {
+    "normal": 55
+   }
+  },
+  {
+   "id": "base1-98",
+   "usd_cents": {
+    "normal": 55
+   }
+  },
+  {
+   "id": "base1-99",
+   "usd_cents": {
+    "normal": 51
+   }
+  },
+  {
+   "id": "base1-100",
+   "usd_cents": {
+    "normal": 54
+   }
+  },
+  {
+   "id": "base1-101",
+   "usd_cents": {
+    "normal": 80
+   }
+  },
+  {
+   "id": "base1-102",
+   "usd_cents": {
+    "normal": 55
+   }
+  }
+ ]
+}

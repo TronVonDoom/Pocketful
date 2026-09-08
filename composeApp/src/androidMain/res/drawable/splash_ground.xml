@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    What the window shows between the launcher tap and the first Compose frame.
+
+    The mark is centred on the app's own background colour, so the cold-start sequence is
+    icon on black -> the same icon on the same black, drawn by the loading screen -> the
+    app. There is no white flash and no jump, because at no point does anything change
+    except who is doing the drawing.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/ink_background" />
+    <item>
+        <bitmap
+            android:src="@drawable/splash_mark"
+            android:gravity="center" />
+    </item>
+</layer-list>

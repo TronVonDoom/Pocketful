@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The one directory the app shares outside itself.
+
+    Scoped to `updates/` inside the private cache rather than to the cache root: the only
+    file that ever needs to leave this app is a release APK on its way to the system
+    installer, and a provider pointed at the whole cache would also expose every piece of
+    card art Coil has written there.
+-->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>

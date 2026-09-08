@@ -1,0 +1,13 @@
+# Normalise to LF in the repository. The project is edited on Windows and built on Linux
+# CI, and gradlew is a shell script that a CRLF checkout would break outright.
+* text=auto eol=lf
+
+*.bat text eol=crlf
+gradlew text eol=lf
+
+*.png binary
+*.jpg binary
+*.webp binary
+*.jar binary
+*.jks binary
+*.keystore binary

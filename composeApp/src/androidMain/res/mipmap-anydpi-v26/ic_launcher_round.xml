@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The launcher icon on API 26 and up, as two layers the launcher animates and masks
+    independently.
+
+    Both layers are bitmaps cut by tools/icons/generate_icons.py from art/icon-source.png.
+    The background carries the brand ground and the bloom behind the render, so the dark
+    pocket keeps a silhouette on a dark home screen; the foreground is the render alone,
+    inside the 66% safe circle, so no mask shape ever clips the gold rim.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@mipmap/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@mipmap/ic_launcher_monochrome" />
+</adaptive-icon>

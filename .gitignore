@@ -1,0 +1,15 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+captures/
+.DS_Store
+
+# Signing. The keystore and its passwords decide whether an installed copy of the app can
+# be updated in place (see the README), so they are worth guarding: a key committed here
+# is a key anyone can publish a "release" of this app with.
+keystore.properties
+*.jks
+*.keystore

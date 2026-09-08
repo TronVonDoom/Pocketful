@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Ink.Background, from ui/theme/Theme.kt.
+
+        Duplicated here rather than referenced because the window is painted by the
+        platform before a single line of Compose has run, and the one moment this colour
+        has to be exactly right is that one: if it disagrees with the Box the app draws,
+        the handover from the system splash to the first frame is a visible flash.
+    -->
+    <color name="ink_background">#FF07080B</color>
+</resources>

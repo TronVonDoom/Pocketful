@@ -1,0 +1,180 @@
+package app.pocketful.domain
+
+/**
+ * A flattened variant, ready to be listed.
+ *
+ * Search, the card list and the stats leaderboard all need the same four-level join
+ * resolved down to one row. Doing it once here keeps three screens from each inventing
+ * their own slightly different idea of what a card is called.
+ */
+data class CardBrief(
+    val variantId: VariantId,
+    val name: String,
+    val setName: String,
+    val setCode: String,
+    val number: String,
+    val collectorNumber: String,
+    val rarity: String?,
+    val type: PokemonType?,
+    val finish: Finish,
+    val badge: String?,
+    val marketValue: Money,
+    /**
+     * The base art URL, without a size or extension. TCGdex serves every rendition off
+     * one stem, so the row that wants a thumbnail and the sheet that wants a full render
+     * ask the same [CardArt] helper for different sizes of the same string.
+     */
+    val artUrl: String? = null,
+) {
+    /** Everything a text query should be able to hit, lowercased once. */
+    val searchIndex: String = buildString {
+        append(name.lowercase())
+        append(' ')
+        append(setName.lowercase())
+        append(' ')
+        append(setCode.lowercase())
+        append(' ')
+        append(collectorNumber.lowercase())
+        rarity?.let { append(' '); append(it.lowercase()) }
+        append(' ')
+        append(finish.label.lowercase())
+    }
+
+    /** Leading digits of the collector number, for ordering a set the way it was printed. */
+    val numericOrder: Int = number.takeWhile { it.isDigit() }.toIntOrNull() ?: Int.MAX_VALUE
+}
+
+fun CollectionSnapshot.brief(variantId: VariantId): CardBrief? {
+    val variant = variants[variantId] ?: return null
+    val printing = printings[variant.printingId] ?: return null
+    val card = cards[printing.cardId] ?: return null
+    return CardBrief(
+        variantId = variantId,
+        name = card.name,
+        setName = printing.setName,
+        setCode = printing.setCode,
+        number = printing.number,
+        collectorNumber = printing.collectorNumber,
+        rarity = printing.rarity,
+        type = card.types.firstOrNull(),
+        finish = variant.finish,
+        badge = variant.badge,
+        marketValue = marketValue(variantId),
+        artUrl = printing.imageUrl,
+    )
+}
+
+/** The whole catalog as rows, in set then printed order. */
+fun CollectionSnapshot.allBriefs(): List<CardBrief> =
+    variants.keys.mapNotNull { brief(it) }
+        .sortedWith(compareBy({ it.setName }, { it.numericOrder }, { it.number }))
+
+/**
+ * Ranked search. Exact and prefix name matches are floated above substring hits, because
+ * typing "cha" and getting Machamp before Charizard is the thing that makes a card picker
+ * feel broken even when every result technically matches.
+ */
+fun List<CardBrief>.search(query: String, limit: Int = 60): List<CardBrief> {
+    val q = query.trim().lowercase()
+    if (q.isEmpty()) return take(limit)
+    return asSequence()
+        .mapNotNull { brief ->
+            val name = brief.name.lowercase()
+            val rank = when {
+                name == q -> 0
+                name.startsWith(q) -> 1
+                name.split(' ').any { it.startsWith(q) } -> 2
+                brief.collectorNumber.lowercase().startsWith(q) -> 3
+                name.contains(q) -> 4
+                brief.searchIndex.contains(q) -> 5
+                else -> null
+            }
+            rank?.let { it to brief }
+        }
+        .sortedWith(compareBy({ it.first }, { -it.second.marketValue.cents }))
+        .map { it.second }
+        .take(limit)
+        .toList()
+}
+
+/**
+ * One owned card, joined to its catalog row and to wherever it currently lives.
+ *
+ * [holderName] is whatever is holding it -- a binder or a container -- resolved here so
+ * that the card list never has to look up two different collections to caption a row.
+ */
+data class CopyRow(
+    val copy: Copy,
+    val brief: CardBrief,
+    val value: Money,
+    val holderName: String?,
+    val ordinal: Int?,
+) {
+    val locationLabel: String
+        get() = when (val location = copy.location) {
+            is Location.BinderSlot -> holderName?.let { "$it · pocket ${(ordinal ?: 0) + 1}" } ?: "Filed"
+            is Location.InContainer -> holderName ?: "Stored"
+            Location.Unassigned -> "Unfiled"
+            is Location.AtGrading -> "At ${location.company.name}"
+            is Location.Lent -> "Lent to ${location.toWhom}"
+        }
+
+    val isUnfiled: Boolean get() = copy.location == Location.Unassigned
+}
+
+/**
+ * One copy you are willing to part with, plus where it currently sits.
+ *
+ * A trade row is a [CopyRow] you have flagged, so it is derived rather than stored: the
+ * flag lives on the copy, and there is no second list that can disagree with it about
+ * what is actually on the table.
+ */
+fun CollectionSnapshot.tradeRows(): List<CopyRow> =
+    copyRows().filter { it.copy.forTrade }.sortedByDescending { it.value.cents }
+
+fun CollectionSnapshot.copyRows(): List<CopyRow> {
+    val binderNames = binders.associate { it.id to it.name }
+    val containerNames = containers.associate { it.id to it.name }
+    return copies.values.mapNotNull { copy ->
+        val brief = brief(copy.variantId) ?: return@mapNotNull null
+        val slot = copy.location as? Location.BinderSlot
+        CopyRow(
+            copy = copy,
+            brief = brief,
+            value = valueOf(copy),
+            holderName = when (val location = copy.location) {
+                is Location.BinderSlot -> binderNames[location.binderId]
+                is Location.InContainer -> containerNames[location.containerId]
+                else -> null
+            },
+            ordinal = slot?.ordinal,
+        )
+    }
+}
+
+/** Every card marked wanted anywhere, with the binder and pocket that is holding the gap. */
+data class WantRow(
+    val brief: CardBrief,
+    val binderId: BinderId,
+    val binderName: String,
+    val ordinal: Int,
+    val targetPrice: Money,
+)
+
+fun CollectionSnapshot.wantRows(): List<WantRow> = buildList {
+    for (binder in binders) {
+        binder.paddedSlots.forEachIndexed { ordinal, slot ->
+            if (slot !is SlotContent.Wanted) return@forEachIndexed
+            val brief = brief(slot.variantId) ?: return@forEachIndexed
+            add(
+                WantRow(
+                    brief = brief,
+                    binderId = binder.id,
+                    binderName = binder.name,
+                    ordinal = ordinal,
+                    targetPrice = slot.targetPrice ?: brief.marketValue,
+                ),
+            )
+        }
+    }
+}

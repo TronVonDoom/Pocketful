@@ -1,0 +1,441 @@
+{
+ "setId": "base2",
+ "source": "tcgplayer",
+ "fetchedAt": "2026-09-08T16:34:04Z",
+ "cards": [
+  {
+   "id": "base2-1",
+   "usd_cents": {
+    "1st-edition-holofoil": 12114,
+    "unlimited-holofoil": 3826
+   }
+  },
+  {
+   "id": "base2-2",
+   "usd_cents": {
+    "1st-edition-holofoil": 6413,
+    "unlimited-holofoil": 2548
+   }
+  },
+  {
+   "id": "base2-3",
+   "usd_cents": {
+    "1st-edition-holofoil": 15962,
+    "unlimited-holofoil": 9604
+   }
+  },
+  {
+   "id": "base2-4",
+   "usd_cents": {
+    "1st-edition-holofoil": 25806,
+    "unlimited-holofoil": 9906
+   }
+  },
+  {
+   "id": "base2-5",
+   "usd_cents": {
+    "1st-edition-holofoil": 8152,
+    "unlimited-holofoil": 1853
+   }
+  },
+  {
+   "id": "base2-6",
+   "usd_cents": {
+    "1st-edition-holofoil": 12845,
+    "unlimited-holofoil": 3828
+   }
+  },
+  {
+   "id": "base2-7",
+   "usd_cents": {
+    "1st-edition-holofoil": 11381,
+    "unlimited-holofoil": 4454
+   }
+  },
+  {
+   "id": "base2-8",
+   "usd_cents": {
+    "1st-edition-holofoil": 16046,
+    "unlimited-holofoil": 5477
+   }
+  },
+  {
+   "id": "base2-9",
+   "usd_cents": {
+    "1st-edition-holofoil": 8813,
+    "unlimited-holofoil": 3237
+   }
+  },
+  {
+   "id": "base2-10",
+   "usd_cents": {
+    "1st-edition-holofoil": 15849,
+    "unlimited-holofoil": 6171
+   }
+  },
+  {
+   "id": "base2-11",
+   "usd_cents": {
+    "1st-edition-holofoil": 34203,
+    "unlimited-holofoil": 15106
+   }
+  },
+  {
+   "id": "base2-12",
+   "usd_cents": {
+    "1st-edition-holofoil": 10550,
+    "unlimited-holofoil": 4996
+   }
+  },
+  {
+   "id": "base2-13",
+   "usd_cents": {
+    "1st-edition-holofoil": 8514,
+    "unlimited-holofoil": 3746
+   }
+  },
+  {
+   "id": "base2-14",
+   "usd_cents": {
+    "1st-edition-holofoil": 11999,
+    "unlimited-holofoil": 4412
+   }
+  },
+  {
+   "id": "base2-15",
+   "usd_cents": {
+    "1st-edition-holofoil": 9056,
+    "unlimited-holofoil": 3762
+   }
+  },
+  {
+   "id": "base2-16",
+   "usd_cents": {
+    "1st-edition-holofoil": 7838,
+    "unlimited-holofoil": 4265
+   }
+  },
+  {
+   "id": "base2-17",
+   "usd_cents": {
+    "1st-edition": 1545,
+    "unlimited": 859
+   }
+  },
+  {
+   "id": "base2-18",
+   "usd_cents": {
+    "1st-edition": 5054,
+    "unlimited": 797
+   }
+  },
+  {
+   "id": "base2-19",
+   "usd_cents": {
+    "1st-edition": 4419,
+    "unlimited": 1473
+   }
+  },
+  {
+   "id": "base2-20",
+   "usd_cents": {
+    "1st-edition": 5724,
+    "unlimited": 2306
+   }
+  },
+  {
+   "id": "base2-21",
+   "usd_cents": {
+    "1st-edition": 1881,
+    "unlimited": 607
+   }
+  },
+  {
+   "id": "base2-22",
+   "usd_cents": {
+    "1st-edition": 1977,
+    "unlimited": 982
+   }
+  },
+  {
+   "id": "base2-23",
+   "usd_cents": {
+    "1st-edition": 2192,
+    "unlimited": 940
+   }
+  },
+  {
+   "id": "base2-24",
+   "usd_cents": {
+    "1st-edition": 2170,
+    "unlimited": 788
+   }
+  },
+  {
+   "id": "base2-25",
+   "usd_cents": {
+    "1st-edition": 1900,
+    "unlimited": 524
+   }
+  },
+  {
+   "id": "base2-26",
+   "usd_cents": {
+    "1st-edition": 3048,
+    "unlimited": 1773
+   }
+  },
+  {
+   "id": "base2-27",
+   "usd_cents": {
+    "1st-edition": 7529,
+    "unlimited": 2652
+   }
+  },
+  {
+   "id": "base2-28",
+   "usd_cents": {
+    "1st-edition": 3822,
+    "unlimited": 1589
+   }
+  },
+  {
+   "id": "base2-29",
+   "usd_cents": {
+    "1st-edition": 1330,
+    "unlimited": 608
+   }
+  },
+  {
+   "id": "base2-30",
+   "usd_cents": {
+    "1st-edition": 1565,
+    "unlimited": 718
+   }
+  },
+  {
+   "id": "base2-31",
+   "usd_cents": {
+    "1st-edition": 1639,
+    "unlimited": 740
+   }
+  },
+  {
+   "id": "base2-32",
+   "usd_cents": {
+    "1st-edition": 2135,
+    "unlimited": 826
+   }
+  },
+  {
+   "id": "base2-33",
+   "usd_cents": {
+    "1st-edition": 1483,
+    "unlimited": 178
+   }
+  },
+  {
+   "id": "base2-34",
+   "usd_cents": {
+    "1st-edition": 453,
+    "unlimited": 133
+   }
+  },
+  {
+   "id": "base2-35",
+   "usd_cents": {
+    "1st-edition": 845,
+    "unlimited": 171
+   }
+  },
+  {
+   "id": "base2-36",
+   "usd_cents": {
+    "1st-edition": 428,
+    "unlimited": 105
+   }
+  },
+  {
+   "id": "base2-37",
+   "usd_cents": {
+    "1st-edition": 459,
+    "unlimited": 78
+   }
+  },
+  {
+   "id": "base2-38",
+   "usd_cents": {
+    "1st-edition": 895,
+    "unlimited": 168
+   }
+  },
+  {
+   "id": "base2-39",
+   "usd_cents": {
+    "1st-edition": 1156,
+    "unlimited": 288
+   }
+  },
+  {
+   "id": "base2-40",
+   "usd_cents": {
+    "1st-edition": 397,
+    "unlimited": 58
+   }
+  },
+  {
+   "id": "base2-41",
+   "usd_cents": {
+    "1st-edition": 304,
+    "unlimited": 113
+   }
+  },
+  {
+   "id": "base2-42",
+   "usd_cents": {
+    "1st-edition": 1153,
+    "unlimited": 89
+   }
+  },
+  {
+   "id": "base2-43",
+   "usd_cents": {
+    "1st-edition": 632,
+    "unlimited": 148
+   }
+  },
+  {
+   "id": "base2-44",
+   "usd_cents": {
+    "1st-edition": 1031,
+    "unlimited": 232
+   }
+  },
+  {
+   "id": "base2-45",
+   "usd_cents": {
+    "1st-edition": 1225,
+    "unlimited": 128
+   }
+  },
+  {
+   "id": "base2-46",
+   "usd_cents": {
+    "1st-edition": 501,
+    "unlimited": 150
+   }
+  },
+  {
+   "id": "base2-47",
+   "usd_cents": {
+    "1st-edition": 598,
+    "unlimited": 125
+   }
+  },
+  {
+   "id": "base2-48",
+   "usd_cents": {
+    "1st-edition": 404,
+    "unlimited": 75
+   }
+  },
+  {
+   "id": "base2-49",
+   "usd_cents": {
+    "1st-edition": 337,
+    "unlimited": 43
+   }
+  },
+  {
+   "id": "base2-50",
+   "usd_cents": {
+    "1st-edition": 1111,
+    "unlimited": 222
+   }
+  },
+  {
+   "id": "base2-51",
+   "usd_cents": {
+    "1st-edition": 1466,
+    "unlimited": 250
+   }
+  },
+  {
+   "id": "base2-52",
+   "usd_cents": {
+    "1st-edition": 278,
+    "unlimited": 48
+   }
+  },
+  {
+   "id": "base2-53",
+   "usd_cents": {
+    "1st-edition": 261,
+    "unlimited": 52
+   }
+  },
+  {
+   "id": "base2-54",
+   "usd_cents": {
+    "1st-edition": 753,
+    "unlimited": 146
+   }
+  },
+  {
+   "id": "base2-55",
+   "usd_cents": {
+    "1st-edition": 197,
+    "unlimited": 48
+   }
+  },
+  {
+   "id": "base2-56",
+   "usd_cents": {
+    "1st-edition": 521,
+    "unlimited": 94
+   }
+  },
+  {
+   "id": "base2-58",
+   "usd_cents": {
+    "1st-edition": 331,
+    "unlimited": 51
+   }
+  },
+  {
+   "id": "base2-59",
+   "usd_cents": {
+    "1st-edition": 212,
+    "unlimited": 51
+   }
+  },
+  {
+   "id": "base2-60",
+   "usd_cents": {
+    "1st-edition": 2605,
+    "unlimited": 728
+   }
+  },
+  {
+   "id": "base2-61",
+   "usd_cents": {
+    "1st-edition": 282,
+    "unlimited": 47
+   }
+  },
+  {
+   "id": "base2-62",
+   "usd_cents": {
+    "1st-edition": 207,
+    "unlimited": 49
+   }
+  },
+  {
+   "id": "base2-63",
+   "usd_cents": {
+    "1st-edition": 214,
+    "unlimited": 44
+   }
+  }
+ ]
+}

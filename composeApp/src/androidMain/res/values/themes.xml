@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Pocketful" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/ink_background</item>
+    </style>
+
+    <!--
+        The launch theme. Identical to the app's, except that the window it hands over is
+        already showing the icon, so the process start is not a rectangle of empty colour.
+
+        Applied to the activity rather than the application: it is only ever seen for the
+        few hundred milliseconds before setContent runs, and the loading screen that comes
+        next continues the same image.
+    -->
+    <style name="Theme.Pocketful.Splash" parent="Theme.Pocketful">
+        <item name="android:windowBackground">@drawable/splash_ground</item>
+    </style>
+</resources>
