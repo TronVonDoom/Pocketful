@@ -36,6 +36,7 @@ import app.pocketful.ui.components.FieldLabel
 import app.pocketful.ui.components.SheetActions
 import app.pocketful.ui.components.SheetBody
 import app.pocketful.ui.components.SheetHeader
+import app.pocketful.ui.components.VariantPicker
 import app.pocketful.ui.theme.AppIcons
 import app.pocketful.ui.theme.Ink
 
@@ -51,20 +52,31 @@ import app.pocketful.ui.theme.Ink
  * Binders are deliberately absent from that list. A binder is not a bag -- a card in one
  * is in a numbered pocket -- and picking a pocket needs the page view, which is one tap
  * away once the card exists.
+ *
+ * [variants] is every finish the same printing exists in, and which one is being recorded
+ * is a choice made here rather than upstream. A search result is a printing, not a press
+ * run: tapping "Charizard 223/197" says nothing about whether the card in the sleeve is
+ * the plain one or the reverse, and the sheet is the first point in the flow where
+ * somebody is looking at the card and can say.
  */
 @Composable
 fun AddToCollectionSheet(
     brief: CardBrief?,
+    variants: List<CardBrief>,
     containers: List<Container>,
     onDismiss: () -> Unit,
-    onConfirm: (Condition, Money?, ContainerId?) -> Unit,
+    onConfirm: (CardBrief, Condition, Money?, ContainerId?) -> Unit,
 ) {
-    // Latched so the sheet still has a card to draw while it animates out.
+    // Latched so the sheet still has a card to draw while it animates out. The chosen
+    // press run and the list to choose from are latched alongside it for the same reason:
+    // all three have to survive the card being cleared by the dismiss.
     var latched by remember { mutableStateOf<CardBrief?>(null) }
+    var options by remember { mutableStateOf<List<CardBrief>>(emptyList()) }
     var openCount by remember { mutableStateOf(0) }
     LaunchedEffect(brief) {
         if (brief != null) {
             latched = brief
+            options = variants
             openCount++
         }
     }
@@ -90,6 +102,12 @@ fun AddToCollectionSheet(
                 brief = active,
                 valueLabel = active.marketValue.format(),
                 caption = active.finish.label,
+            )
+
+            VariantPicker(
+                variants = options,
+                selected = active,
+                onSelect = { latched = it },
             )
 
             Column {
@@ -163,7 +181,7 @@ fun AddToCollectionSheet(
             AppOutlineButton("Cancel", onDismiss, Modifier.weight(1f))
             AppButton(
                 label = "Add card",
-                onClick = { onConfirm(condition, paid.toMoneyOrNull(), destination) },
+                onClick = { onConfirm(active, condition, paid.toMoneyOrNull(), destination) },
                 modifier = Modifier.weight(1.5f),
                 icon = AppIcons.Plus,
             )

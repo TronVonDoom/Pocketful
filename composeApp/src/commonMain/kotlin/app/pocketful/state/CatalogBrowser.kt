@@ -19,8 +19,8 @@ import app.pocketful.data.TcgDex
  * second vocabulary one line down the screen.
  */
 enum class CatalogOrder(val label: String) {
-    Oldest("Oldest"),
     Newest("Newest"),
+    Oldest("Oldest"),
     NameAsc("A–Z"),
     NameDesc("Z–A"),
 }
@@ -86,10 +86,15 @@ class CatalogBrowser(private val api: TcgDex) {
     /**
      * How the two levels are ordered, held here rather than in the screen so that leaving
      * the tab and coming back does not silently undo a choice the user made.
+     *
+     * Newest first at both levels, because the catalog is opened to look something up far
+     * more often than to read it end to end, and what people are looking up is what they
+     * just pulled out of a pack. Oldest first put Base Set at the top and buried the
+     * current era under twenty-five years of scrolling.
      */
-    var seriesOrder by mutableStateOf(CatalogOrder.Oldest)
+    var seriesOrder by mutableStateOf(CatalogOrder.Newest)
 
-    var setOrder by mutableStateOf(CatalogOrder.Oldest)
+    var setOrder by mutableStateOf(CatalogOrder.Newest)
 
     /** Whether there is anything to draw yet. */
     val isEmpty: Boolean get() = groups.isEmpty()

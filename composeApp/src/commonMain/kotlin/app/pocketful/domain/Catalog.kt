@@ -67,10 +67,15 @@ data class Variant(
         ).takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
 
+/**
+ * Declared plainest-first: pickers and badges list these in order, and a collector reads
+ * "Normal, Holo, Reverse Holo" as the natural sequence. The labels are the words printed
+ * on price guides rather than the words in the enum -- nobody asks for a "non-holo".
+ */
 enum class Finish(val label: String) {
-    NON_HOLO("Non-holo"),
+    NON_HOLO("Normal"),
     HOLO("Holo"),
-    REVERSE_HOLO("Reverse"),
+    REVERSE_HOLO("Reverse Holo"),
     FULL_ART("Full Art"),
     TEXTURED("Textured"),
     GOLD("Gold"),

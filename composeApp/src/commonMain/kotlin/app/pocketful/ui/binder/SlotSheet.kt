@@ -42,6 +42,7 @@ import app.pocketful.domain.SlotContent
 import app.pocketful.domain.Supertype
 import app.pocketful.domain.allBriefs
 import app.pocketful.domain.brief
+import app.pocketful.domain.variantBriefs
 import app.pocketful.domain.search
 import app.pocketful.data.SearchHit
 import app.pocketful.data.TcgDex
@@ -74,6 +75,7 @@ import app.pocketful.ui.components.SheetHeader
 import app.pocketful.ui.components.ToggleSwitch
 import app.pocketful.ui.components.TradeToggleRow
 import app.pocketful.ui.components.ValueTrailing
+import app.pocketful.ui.components.VariantPicker
 import app.pocketful.ui.theme.AppIcons
 import app.pocketful.ui.theme.Ink
 import app.pocketful.ui.theme.label
@@ -154,6 +156,14 @@ fun SlotSheet(
                 snapshot = snapshot,
                 onClose = onDismiss,
                 onSetForTrade = { copyId, forTrade -> store.setForTrade(copyId, forTrade) },
+                // Re-aims the want at another press run of the same card, keeping whatever
+                // price it was being hunted at. A set binder is filled with wants before
+                // anyone has decided which finish they are chasing, and "the reverse, not
+                // the plain one" should not mean clearing the pocket and starting over.
+                onChangeWanted = { chosen ->
+                    val want = slot as? SlotContent.Wanted
+                    store.markWanted(binder.id, ordinal, chosen.variantId, want?.targetPrice)
+                },
                 onReplace = { step = Step.Browse },
                 onEditCopy = { step = Step.EditCopy(it) },
                 onAcquireWanted = { step = Step.Acquire(it) },
@@ -215,16 +225,17 @@ fun SlotSheet(
 
             is Step.Acquire -> CopyDetailsStep(
                 brief = current.brief,
+                variants = snapshot.variantBriefs(current.brief.variantId),
                 existing = null,
                 title = "Add to pocket ${ordinal + 1}",
                 confirmLabel = "Add to binder",
                 onBack = { step = Step.Browse },
                 onClose = onDismiss,
-                onConfirm = { condition, paid, grade, notes ->
+                onConfirm = { chosen, condition, paid, grade, notes ->
                     store.addCopyToSlot(
                         binderId = binder.id,
                         ordinal = ordinal,
-                        variantId = current.brief.variantId,
+                        variantId = chosen.variantId,
                         condition = condition,
                         acquiredPrice = paid,
                         grade = grade,
@@ -246,13 +257,25 @@ fun SlotSheet(
                 } else {
                     CopyDetailsStep(
                         brief = brief,
+                        variants = snapshot.variantBriefs(copy.variantId),
                         existing = copy,
                         title = "Edit card",
                         confirmLabel = "Save changes",
                         onBack = { step = Step.Detail },
                         onClose = onDismiss,
-                        onConfirm = { condition, paid, grade, notes ->
-                            store.updateCopy(copy.id, condition, paid, grade, notes)
+                        // Re-pointing the copy at another press run is the whole reason
+                        // the picker is offered on an existing card: "I filed this as a
+                        // normal, it is actually the reverse" is a correction, not a new
+                        // card, and re-recording it would lose what it cost.
+                        onConfirm = { chosen, condition, paid, grade, notes ->
+                            store.updateCopy(
+                                copyId = copy.id,
+                                condition = condition,
+                                acquiredPrice = paid,
+                                grade = grade,
+                                notes = notes,
+                                variantId = chosen.variantId,
+                            )
                             step = Step.Detail
                         },
                     )
@@ -303,6 +326,7 @@ private fun ColumnScope.SlotDetailStep(
     snapshot: CollectionSnapshot,
     onClose: () -> Unit,
     onSetForTrade: (CopyId, Boolean) -> Unit,
+    onChangeWanted: (CardBrief) -> Unit,
     onReplace: () -> Unit,
     onEditCopy: (CopyId) -> Unit,
     onAcquireWanted: (CardBrief) -> Unit,
@@ -412,6 +436,14 @@ private fun ColumnScope.SlotDetailStep(
             val target = slot.targetPrice ?: brief.marketValue
             SheetBody {
                 CardHero(brief = brief, valueLabel = target.format(), caption = "Hunting")
+
+                VariantPicker(
+                    variants = snapshot.variantBriefs(slot.variantId),
+                    selected = brief,
+                    onSelect = onChangeWanted,
+                    label = "Which one you are after",
+                )
+
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     DetailRow("Market value", brief.marketValue.format())
                     DetailRow("Counted toward", "cost to complete", valueColor = Ink.TextTertiary)
@@ -629,16 +661,22 @@ private fun ColumnScope.BrowseStep(
 
 // ------------------------------------------------------------- copy details
 
+@Suppress("LongParameterList")
 @Composable
 private fun ColumnScope.CopyDetailsStep(
     brief: CardBrief,
+    variants: List<CardBrief>,
     existing: Copy?,
     title: String,
     confirmLabel: String,
     onBack: () -> Unit,
     onClose: () -> Unit,
-    onConfirm: (Condition, Money?, Grade?, String?) -> Unit,
+    onConfirm: (CardBrief, Condition, Money?, Grade?, String?) -> Unit,
 ) {
+    // Which press run this copy is. Keyed to the card the step was opened on, so backing
+    // out and picking a different card starts from that card's own finish rather than
+    // from whichever chip was last pressed.
+    var chosen by remember(existing?.id, brief.variantId) { mutableStateOf(brief) }
     var condition by remember(existing?.id) { mutableStateOf(existing?.condition ?: Condition.NEAR_MINT) }
     var paid by remember(existing?.id) { mutableStateOf(existing?.acquiredPrice?.toPriceInput() ?: "") }
     var graded by remember(existing?.id) { mutableStateOf(existing?.grade != null) }
@@ -650,7 +688,9 @@ private fun ColumnScope.CopyDetailsStep(
     SheetHeader(title = title, onClose = onClose)
 
     SheetBody {
-        CardHero(brief = brief, valueLabel = brief.marketValue.format(), caption = brief.finish.label)
+        CardHero(brief = chosen, valueLabel = chosen.marketValue.format(), caption = chosen.finish.label)
+
+        VariantPicker(variants = variants, selected = chosen, onSelect = { chosen = it })
 
         Column {
             FieldLabel("Condition")
@@ -752,7 +792,7 @@ private fun ColumnScope.CopyDetailsStep(
                 } else {
                     null
                 }
-                onConfirm(condition, paid.toMoneyOrNull(), grade, notes)
+                onConfirm(chosen, condition, paid.toMoneyOrNull(), grade, notes)
             },
             modifier = Modifier.weight(1.4f),
         )

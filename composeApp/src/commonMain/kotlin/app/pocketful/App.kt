@@ -36,6 +36,7 @@ import app.pocketful.domain.ContainerId
 import app.pocketful.domain.CopyId
 import app.pocketful.domain.Finish
 import app.pocketful.domain.brief
+import app.pocketful.domain.variantBriefs
 import app.pocketful.data.CatalogSync
 import app.pocketful.data.RemoteSet
 import app.pocketful.data.SearchHit
@@ -559,19 +560,24 @@ fun App() {
                     },
                 )
 
+                // Recomputed only when the card being added changes: it walks the whole
+                // variant table, and the sheet is open across every recomposition the
+                // screen behind it makes.
+                val addingVariants = remember(addingCard, snapshot.variants) {
+                    addingCard?.let { snapshot.variantBriefs(it.variantId) }.orEmpty()
+                }
                 AddToCollectionSheet(
                     brief = addingCard,
+                    variants = addingVariants,
                     containers = snapshot.containers,
                     onDismiss = { addingCard = null },
-                    onConfirm = { condition, paid, containerId ->
-                        addingCard?.let { brief ->
-                            store.addCopy(
-                                variantId = brief.variantId,
-                                condition = condition,
-                                acquiredPrice = paid,
-                                container = containerId,
-                            )
-                        }
+                    onConfirm = { brief, condition, paid, containerId ->
+                        store.addCopy(
+                            variantId = brief.variantId,
+                            condition = condition,
+                            acquiredPrice = paid,
+                            container = containerId,
+                        )
                         addingCard = null
                     },
                 )

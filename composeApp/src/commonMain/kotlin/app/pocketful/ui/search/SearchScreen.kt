@@ -26,8 +26,8 @@ import app.pocketful.data.RemoteSet
 import app.pocketful.data.SearchHit
 import app.pocketful.domain.CardBrief
 import app.pocketful.domain.CollectionSnapshot
+import app.pocketful.domain.PrintingId
 import app.pocketful.domain.TcgGame
-import app.pocketful.domain.VariantId
 import app.pocketful.domain.allBriefs
 import app.pocketful.domain.search
 import app.pocketful.state.CardLookup
@@ -110,11 +110,32 @@ fun SearchScreen(
     val matchingSets = remember(browser.sets, trimmed) { browser.sets.matching(trimmed) }
 
     val localCatalog = remember(snapshot) { snapshot.allBriefs() }
+    // One row per printing, not per press run. The catalog holds a normal, a holo and a
+    // reverse of the same card as three variants, and three tiles with the same art and
+    // the same number under them is a list that looks broken -- the finish is a choice
+    // made in the sheet that opens, where the price for each one is visible.
     val localResults = remember(localCatalog, trimmed) {
-        if (trimmed.isEmpty()) emptyList() else localCatalog.search(trimmed, limit = 20)
+        if (trimmed.isEmpty()) {
+            emptyList()
+        } else {
+            localCatalog.search(trimmed, limit = 40)
+                .groupBy { it.printingId }
+                // The plainest finish stands for the group. Ranking inside a printing is
+                // by price, which would otherwise put a card's reverse holo forward as
+                // the face of it -- and the sheet opens on whichever one the tile is, so
+                // the representative is also the default answer.
+                .values
+                .map { group -> group.minBy { it.finish.ordinal } }
+                .take(20)
+        }
     }
+    // Counted per printing to match, so a tile that stands for three variants does not
+    // claim you own none of it because you own the reverse rather than the normal.
     val ownedCounts = remember(snapshot) {
-        snapshot.copies.values.groupingBy { it.variantId }.eachCount()
+        snapshot.copies.values
+            .mapNotNull { snapshot.variants[it.variantId]?.printingId }
+            .groupingBy { it }
+            .eachCount()
     }
 
     val listState = rememberLazyListState()
@@ -322,7 +343,7 @@ private fun LazyListScope.setMatches(sets: List<RemoteSet>, onOpenSet: (RemoteSe
 private fun LazyListScope.cardResults(
     query: String,
     localResults: List<CardBrief>,
-    ownedCounts: Map<VariantId, Int>,
+    ownedCounts: Map<PrintingId, Int>,
     lookup: CardLookup,
     localCatalog: List<CardBrief>,
     importing: Boolean,
@@ -334,7 +355,7 @@ private fun LazyListScope.cardResults(
     if (localResults.isNotEmpty()) {
         item { SectionHeader("Already in your catalog · ${localResults.size}", Modifier.padding(top = 4.dp)) }
         tileRows(items = localResults, keyPrefix = "local", key = { it.variantId.value }) { brief ->
-            val owned = ownedCounts[brief.variantId] ?: 0
+            val owned = ownedCounts[brief.printingId] ?: 0
             CardTile(
                 brief = brief,
                 value = brief.marketValue.displayOrNull(),

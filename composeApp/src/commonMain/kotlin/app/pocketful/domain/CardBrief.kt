@@ -9,6 +9,12 @@ package app.pocketful.domain
  */
 data class CardBrief(
     val variantId: VariantId,
+    /**
+     * The printing this variant is one press run of. Carried so a screen holding a brief
+     * can ask what else the same card was printed as without walking back through the
+     * variant table itself -- see [CollectionSnapshot.variantBriefs].
+     */
+    val printingId: PrintingId,
     val name: String,
     val setName: String,
     val setCode: String,
@@ -50,6 +56,7 @@ fun CollectionSnapshot.brief(variantId: VariantId): CardBrief? {
     val card = cards[printing.cardId] ?: return null
     return CardBrief(
         variantId = variantId,
+        printingId = printing.id,
         name = card.name,
         setName = printing.setName,
         setCode = printing.setCode,
@@ -62,6 +69,27 @@ fun CollectionSnapshot.brief(variantId: VariantId): CardBrief? {
         marketValue = marketValue(variantId),
         artUrl = printing.imageUrl,
     )
+}
+
+/**
+ * Every finish the same card was printed in, as rows.
+ *
+ * The catalog import fans one upstream document out into a variant per press run, so a
+ * modern rare already exists in the collection as a normal, a holo and a reverse the
+ * moment it is fetched -- but only one of those is the card in your hand. This is what
+ * the acquire sheets offer as a choice, which is why it returns the *whole* set including
+ * the one asked about rather than the others: a picker missing the option it is currently
+ * showing reads as a bug.
+ *
+ * Ordered by [Finish] and then [Edition], both of which are declared plainest-first, so
+ * "Normal" leads and the exotic finishes trail in the order a collector would list them.
+ */
+fun CollectionSnapshot.variantBriefs(variantId: VariantId): List<CardBrief> {
+    val printingId = variants[variantId]?.printingId ?: return listOfNotNull(brief(variantId))
+    return variants.values
+        .filter { it.printingId == printingId }
+        .sortedWith(compareBy({ it.finish.ordinal }, { it.edition.ordinal }, { it.language.ordinal }))
+        .mapNotNull { brief(it.id) }
 }
 
 /** The whole catalog as rows, in set then printed order. */

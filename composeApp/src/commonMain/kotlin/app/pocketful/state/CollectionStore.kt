@@ -492,17 +492,29 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
             .reconcileLocations()
     }
 
+    /**
+     * Edits a copy in place.
+     *
+     * [variantId] re-points it at another press run of the same card -- correcting a
+     * reverse holo that was filed as a normal. It is an edit rather than a delete and
+     * re-add because everything else on the record (what it cost, what pocket it is in,
+     * whether it is on the trade table) is about the physical card, and none of that
+     * changes just because the app had the finish wrong. Ignored if it names a variant
+     * the catalog does not have.
+     */
     fun updateCopy(
         copyId: CopyId,
         condition: Condition,
         acquiredPrice: Money?,
         grade: Grade?,
         notes: String?,
+        variantId: VariantId? = null,
     ) {
         val existing = snapshot.copies[copyId] ?: return
         snapshot = snapshot.copy(
             copies = snapshot.copies + (
                 copyId to existing.copy(
+                    variantId = variantId?.takeIf { it in snapshot.variants } ?: existing.variantId,
                     condition = condition,
                     acquiredPrice = acquiredPrice,
                     grade = grade,
