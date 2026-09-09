@@ -77,10 +77,11 @@ private enum class CardStanding { Have, Want, Untracked }
  * *filter* rather than a place, which is backwards: the set is the thing, and what you own
  * of it is a property of it.
  *
- * So this is a screen. It states what the set is at the top, offers the one action that
- * turns a set into work you can do -- a binder sized for it with every pocket already
- * naming the card that belongs there -- and then shows the checklist itself: every card,
- * two to a row, at a size where the artwork is what identifies them.
+ * So this is a screen. It states what the set is at the top, offers the two actions that
+ * turn a set into work you can do -- a binder sized for it with every pocket already
+ * naming the card that belongs there, or the master set, which does the same for every
+ * variation of every card -- and then shows the checklist itself: every card, two to a
+ * row, at a size where the artwork is what identifies them.
  *
  * The status of each card is read from the collection rather than from the binder, so a
  * card you own in a box counts as owned here. Anything else would mean the checklist
@@ -95,8 +96,11 @@ fun SetScreen(
     /** The binder already built from this set, if there is one. */
     existingBinder: Binder?,
     importing: Boolean,
+    /** True while the catalog is being asked which press runs this set was printed in. */
+    buildingMasterSet: Boolean,
     onBack: () -> Unit,
     onCreateBinder: (List<SearchHit>) -> Unit,
+    onCreateMasterSet: (List<SearchHit>) -> Unit,
     onOpenBinder: (Binder) -> Unit,
     onAddCard: (SearchHit) -> Unit,
     modifier: Modifier = Modifier,
@@ -214,9 +218,12 @@ fun SetScreen(
                             set = set,
                             cards = cards,
                             loading = loading,
+                            building = buildingMasterSet,
                             layout = defaultLayout,
                             existingBinder = existingBinder,
+                            failure = browser.variantsError,
                             onCreateBinder = { onCreateBinder(cards) },
+                            onCreateMasterSet = { onCreateMasterSet(cards) },
                             onOpenBinder = { existingBinder?.let(onOpenBinder) },
                         )
                     },
@@ -330,25 +337,42 @@ fun SetScreen(
 }
 
 /**
- * The one thing worth doing with a set, and the way back to it once it is done.
+ * The two ways to turn a set into work you can do, and the way back once one is built.
  *
- * The button changes rather than multiplying. Offering "make a binder" next to "open the
- * binder you already made" is how someone ends up with three binders for one set and no
- * idea which one has their cards in it.
+ * A set binder is the published checklist: one pocket per card, every one marked wanted.
+ * A master set is the same set with every *variation* of every card in it -- the holo and
+ * the reverse holo of a card are different pulls, different prices and different pockets
+ * -- so it runs half again as long and has to ask the catalog which press runs each card
+ * was printed in before it can be sized. That question is the whole reason the second
+ * button is slower than the first, and the caption says so rather than leaving someone
+ * wondering whether the tap registered.
+ *
+ * Both stay offered after a binder exists, which is a reversal: this used to collapse to
+ * one button on the grounds that offering "make a binder" beside "open the binder you
+ * already made" is how someone ends up with three binders for one set. That still holds
+ * for two binders of the same kind, and it is why the built binder is the loud button
+ * here. But a master set is not another copy of the set binder, and hiding it behind a
+ * binder someone happened to build first would put the feature out of reach exactly when
+ * they have decided they want the whole thing.
  */
 @Composable
 private fun SetActions(
     set: RemoteSet,
     cards: List<SearchHit>,
     loading: Boolean,
+    building: Boolean,
     layout: BinderLayout,
     existingBinder: Binder?,
+    /** Why the last master set could not be worked out, if it could not be. */
+    failure: String?,
     onCreateBinder: () -> Unit,
+    onCreateMasterSet: () -> Unit,
     onOpenBinder: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val count = cards.size.takeIf { it > 0 } ?: set.officialCount ?: 0
     val sheets = sheetsToHold(count.coerceAtLeast(1), layout)
+    val ready = !loading && !building && cards.isNotEmpty()
 
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (existingBinder != null) {
@@ -358,31 +382,57 @@ private fun SetActions(
                 modifier = Modifier.fillMaxWidth(),
                 icon = AppIcons.Binders,
             )
+        }
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val setLabel = if (loading) "Loading…" else "Set binder"
+            val masterLabel = if (building) "Reading…" else "Master set"
+
+            // Filled only when there is nothing built yet. Once a binder exists, the way
+            // back into it is the loud thing on the screen and these two are the aside.
+            if (existingBinder == null) {
+                AppButton(
+                    label = setLabel,
+                    onClick = onCreateBinder,
+                    modifier = Modifier.weight(1f),
+                    enabled = ready,
+                    icon = AppIcons.Plus,
+                )
+            } else {
+                AppOutlineButton(
+                    label = setLabel,
+                    onClick = onCreateBinder,
+                    modifier = Modifier.weight(1f),
+                    enabled = ready,
+                    icon = AppIcons.Plus,
+                )
+            }
+
             AppOutlineButton(
-                label = "Build another binder for it",
-                onClick = onCreateBinder,
-                modifier = Modifier.fillMaxWidth(),
-                icon = AppIcons.Plus,
-            )
-        } else {
-            AppButton(
-                label = if (loading) "Loading the checklist…" else "Build a want-list binder",
-                onClick = onCreateBinder,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !loading && cards.isNotEmpty(),
-                icon = AppIcons.Plus,
-            )
-            Text(
-                text = if (cards.isEmpty()) {
-                    "A binder can be built once the checklist has loaded."
-                } else {
-                    "$sheets ${if (sheets == 1) "sheet" else "sheets"} of ${layout.displayName} " +
-                        "pages -- one pocket per card, every one marked wanted."
-                },
-                color = Ink.TextTertiary,
-                style = MaterialTheme.typography.bodySmall,
+                label = masterLabel,
+                onClick = onCreateMasterSet,
+                modifier = Modifier.weight(1f),
+                enabled = ready,
+                icon = AppIcons.Sparkle,
             )
         }
+
+        Text(
+            text = when {
+                failure != null -> failure
+                cards.isEmpty() -> "A binder can be built once the checklist has loaded."
+                building ->
+                    "Reading which variations each of the $count cards was printed in. " +
+                        "This takes a few seconds the first time a set is asked."
+                else ->
+                    "A set binder is $sheets ${if (sheets == 1) "sheet" else "sheets"} of " +
+                        "${layout.displayName} pages -- one pocket per card, every one marked " +
+                        "wanted. A master set opens a pocket for every variation instead: " +
+                        "normal, holo and reverse, each priced on its own."
+            },
+            color = if (failure != null) Ink.Loss else Ink.TextTertiary,
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 

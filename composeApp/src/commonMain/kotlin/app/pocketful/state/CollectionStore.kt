@@ -9,7 +9,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import app.pocketful.data.CardImport
 import app.pocketful.data.CatalogSync
 import app.pocketful.data.RemoteCard
-import app.pocketful.data.SearchHit
+import app.pocketful.data.SetPocket
 import app.pocketful.domain.Binder
 import app.pocketful.domain.BinderId
 import app.pocketful.domain.BinderLayout
@@ -43,6 +43,7 @@ import app.pocketful.domain.VariantId
  */
 data class AppSettings(
     val holoShimmer: Boolean = true,
+    val holoSparkle: Boolean = true,
     val showPocketPrices: Boolean = true,
     val showWantedGhosts: Boolean = true,
     val abbreviateValues: Boolean = true,
@@ -140,10 +141,10 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
         sheetCount: Int,
         spineColor: Long,
         sourceSetId: String?,
-        cards: List<SearchHit>,
+        pockets: List<SetPocket>,
     ): BinderId {
         val safeSheets = sheetCount.coerceAtLeast(1)
-        val (withCatalog, variantIds) = CardImport.stubAll(snapshot, cards)
+        val (withCatalog, variantIds) = CardImport.stubAll(snapshot, pockets)
 
         val id = BinderId(uniqueId("binder") { candidate -> snapshot.binders.any { it.id.value == candidate } })
         val capacity = layout.capacity(safeSheets)

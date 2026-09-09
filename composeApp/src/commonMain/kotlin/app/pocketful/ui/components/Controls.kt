@@ -123,7 +123,12 @@ fun AppButton(
             .clip(AppShape.Small)
             .background(if (enabled) background else Ink.SurfaceRaised)
             .tappable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 18.dp),
+            // Deliberately tighter than it looks like it wants to be. A button that fills
+            // its row does not notice the difference -- its content is centred either way
+            // -- but two of these sharing a row on a small phone are about 110dp wide
+            // each, and the four dp this gives back is the difference between a label and
+            // an ellipsis.
+            .padding(horizontal = 14.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -136,6 +141,7 @@ fun AppButton(
             color = if (enabled) foreground else Ink.TextDisabled,
             style = MaterialTheme.typography.labelLarge,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -147,22 +153,31 @@ fun AppOutlineButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
+    enabled: Boolean = true,
 ) {
+    val foreground = if (enabled) Ink.TextSecondary else Ink.TextDisabled
+
     Row(
         modifier
             .height(48.dp)
             .clip(AppShape.Small)
-            .border(1.dp, Ink.Outline, AppShape.Small)
-            .tappable(onClick = onClick)
-            .padding(horizontal = 18.dp),
+            .border(1.dp, if (enabled) Ink.Outline else Ink.OutlineFaint, AppShape.Small)
+            .tappable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 14.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            Icon(icon, null, Modifier.size(17.dp), tint = Ink.TextSecondary)
+            Icon(icon, null, Modifier.size(17.dp), tint = foreground)
             Spacer(Modifier.width(8.dp))
         }
-        Text(label, color = Ink.TextSecondary, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+        Text(
+            text = label,
+            color = foreground,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -472,6 +487,7 @@ fun ToggleSwitch(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     val track by animateColorAsState(
         if (checked) Ink.Accent.copy(alpha = 0.85f) else Ink.SurfaceHigh,
@@ -485,7 +501,7 @@ fun ToggleSwitch(
             .clip(AppShape.Pill)
             .background(track)
             .border(1.dp, if (checked) Color.Transparent else Ink.OutlineSoft, AppShape.Pill)
-            .clickable { onCheckedChange(!checked) },
+            .clickable(enabled = enabled) { onCheckedChange(!checked) },
     ) {
         Box(
             Modifier

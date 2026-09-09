@@ -12,15 +12,21 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.layout.ContentScale
 import app.pocketful.data.CardArt
 import app.pocketful.domain.PokemonType
+import app.pocketful.state.LocalAppSettings
 import app.pocketful.ui.theme.artBrush
 import coil3.compose.AsyncImage
+import kotlin.math.abs
+import kotlin.math.sin
+import kotlin.random.Random
 
 /** Which rendition of the art a surface wants. */
 enum class ArtSize { Thumb, Full }
@@ -40,7 +46,8 @@ fun CardArtwork(
     type: PokemonType?,
     modifier: Modifier = Modifier,
     size: ArtSize = ArtSize.Thumb,
-    shimmer: Boolean = false,
+    /** Whether this printing is a foil, and so has light to catch. */
+    holo: Boolean = false,
 ) {
     Box(modifier) {
         Box(Modifier.fillMaxSize().background(type.artBrush()))
@@ -61,7 +68,15 @@ fun CardArtwork(
         // Seeded from the art so that a page of sixteen foils does not flash in unison
         // -- sixteen synchronised sweeps read as one screen-wide strobe rather than as
         // sixteen cards catching the light.
-        if (shimmer) HoloSheen(seed = artStem.hashCode())
+        //
+        // The two foil switches are read here rather than at each call site. Five places
+        // draw a card, the settings screen makes one promise about foil, and a tile that
+        // went on shimmering after the toggle was turned off was a toggle that did not
+        // work.
+        val settings = LocalAppSettings.current
+        if (holo && settings.holoShimmer) {
+            HoloSheen(seed = artStem.hashCode(), sparkle = settings.holoSparkle)
+        }
     }
 }
 
@@ -85,10 +100,12 @@ fun CardArtwork(
  *
  * @param seed anything stable about the card. Only its remainder is used, to spread the
  *   start of the sweep across the pockets on a page.
+ * @param sparkle whether the foil also glitters -- see [flecksFor].
  */
 @Composable
-fun HoloSheen(seed: Int = 0) {
+fun HoloSheen(seed: Int = 0, sparkle: Boolean = false) {
     val leadIn = seed.mod(STAGGER_STEPS) * (REST_MILLIS / STAGGER_STEPS)
+    val flecks = remember(seed) { flecksFor(seed) }
 
     val transition = rememberInfiniteTransition(label = "holo")
     val phase by transition.animateFloat(
@@ -138,8 +155,116 @@ fun HoloSheen(seed: Int = 0) {
                 end = Offset(start.x + span, size.height),
             ),
         )
+
+        if (!sparkle) return@Canvas
+
+        // How far along the band a point sits, in the same coordinate the gradient spaces
+        // its colour stops along: 0 at the leading edge, 1 at the trailing one, 0.5 in the
+        // bright core. This is the projection Compose does internally to paint the band,
+        // repeated here because a fleck has to know how lit it is rather than just be
+        // painted over -- and doing it any other way is how the glitter ends up sparkling
+        // somewhere the light is not.
+        val axisSquared = span * span + size.height * size.height
+        val minSide = minOf(size.width, size.height)
+
+        for (fleck in flecks) {
+            val cx = fleck.x * size.width
+            val cy = fleck.y * size.height
+            val along = ((cx - start.x) * span + cy * size.height) / axisSquared
+            // Cubed: a fleck should ignite as the core of the band arrives, not glow
+            // faintly the whole time the band is anywhere on the card. Foil is specular.
+            val reach = (1f - abs(along * 2f - 1f)).coerceAtLeast(0f)
+            val glow = reach * reach * reach
+            if (glow <= 0.01f) continue
+
+            // ...and each on its own beat, so the flecks scintillate as the light crosses
+            // rather than the card frosting over evenly and clearing again.
+            val twinkle = 0.45f + 0.55f * sin((phase * fleck.rate + fleck.offset) * TAU)
+            val alpha = (glow * twinkle * fleck.strength).coerceIn(0f, 1f)
+            if (alpha <= 0.01f) continue
+
+            val radius = fleck.radius * minSide
+            val centre = Offset(cx, cy)
+            // Halo, core, arms, in that order of importance. A bright round core inside a
+            // soft halo is what a point of light looks like; the cross is the four-point
+            // flare around it and stays thin and short, because arms drawn as long as the
+            // halo is wide stop being a glint and become a plus sign.
+            drawCircle(Color.White.copy(alpha = alpha * 0.20f), radius * 1.7f, centre)
+            drawCircle(Color.White.copy(alpha = alpha), radius * 0.42f, centre)
+            drawLine(
+                color = Color.White.copy(alpha = alpha * 0.8f),
+                start = Offset(cx - radius, cy),
+                end = Offset(cx + radius, cy),
+                strokeWidth = radius * 0.22f,
+                cap = StrokeCap.Round,
+            )
+            drawLine(
+                color = Color.White.copy(alpha = alpha * 0.8f),
+                start = Offset(cx, cy - radius),
+                end = Offset(cx, cy + radius),
+                strokeWidth = radius * 0.22f,
+                cap = StrokeCap.Round,
+            )
+        }
     }
 }
+
+/** One speck of foil: where it sits, how big it is, and on what beat it flickers. */
+private class Fleck(
+    val x: Float,
+    val y: Float,
+    val radius: Float,
+    val strength: Float,
+    val rate: Float,
+    val offset: Float,
+)
+
+/**
+ * A card's glitter, fixed for that card.
+ *
+ * The sweep says a card is foil; the glitter says what kind. A flat sheen crossing a flat
+ * picture is a light effect applied *to* an image, and the thing that turns it into a
+ * surface is the specks that catch that light at different moments as it goes past. So
+ * these are lit by the band's own position rather than animated on their own clock: a
+ * fleck the light has not reached is dark, which is the whole reason it reads as sitting
+ * on the card rather than floating above it.
+ *
+ * Seeded rather than random, so a pocket keeps its own constellation across page turns
+ * and recompositions. Flecks that jumped every time the binder redrew would read as noise
+ * on the screen instead of texture on the card. Held off the outer few percent so nothing
+ * sparkles on the border.
+ */
+private fun flecksFor(seed: Int): List<Fleck> {
+    val random = Random(seed)
+    return List(FLECK_COUNT) {
+        Fleck(
+            x = 0.07f + random.nextFloat() * 0.86f,
+            y = 0.07f + random.nextFloat() * 0.86f,
+            // A fraction of the card's short side, so a fleck is the same size relative to
+            // the card in a 60dp pocket and on a full-screen scan. Small: a speck that
+            // measures a tenth of the card is not a speck, it is a symbol drawn on it.
+            radius = 0.010f + random.nextFloat() * 0.018f,
+            strength = 0.5f + random.nextFloat() * 0.5f,
+            // Two to five flickers across a sweep. Slower and a fleck fades up and down
+            // once, which is a smudge; faster and the card fizzes.
+            rate = 2f + random.nextFloat() * 3f,
+            offset = random.nextFloat(),
+        )
+    }
+}
+
+/**
+ * How many specks a card carries.
+ *
+ * Enough that several are lit at once as the band goes past -- one or two at a time reads
+ * as a mark on the card rather than as glitter -- and few enough that a nine-pocket page
+ * is drawing a couple of hundred per frame, most of which are skipped before any drawing
+ * happens because at any moment the band is only over part of the card.
+ */
+private const val FLECK_COUNT = 22
+
+/** One full turn, for the per-fleck flicker. */
+private const val TAU = 6.2831855f
 
 /**
  * How long the band takes to cross.

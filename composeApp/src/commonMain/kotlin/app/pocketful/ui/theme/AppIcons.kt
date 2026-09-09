@@ -296,6 +296,23 @@ object AppIcons {
     }
 
     /**
+     * Foil catching the light: a four-point star with the concave arms glitter has.
+     *
+     * Not the usual five-point star -- that one means "favourite" on every phone ever
+     * made, and the button it sits on is not about liking a set.
+     */
+    val Sparkle: ImageVector by lazy {
+        strokeIcon("sparkle") {
+            moveTo(12f, 2.5f)
+            quadTo(13f, 11f, 21.5f, 12f)
+            quadTo(13f, 13f, 12f, 21.5f)
+            quadTo(11f, 13f, 2.5f, 12f)
+            quadTo(11f, 11f, 12f, 2.5f)
+            close()
+        }
+    }
+
+    /**
      * Trade: two cards passing in opposite directions.
      *
      * Not the usual pair of circular arrows -- that glyph means "sync" or "refresh"

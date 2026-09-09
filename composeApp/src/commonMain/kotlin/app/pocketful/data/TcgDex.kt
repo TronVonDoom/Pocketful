@@ -50,6 +50,9 @@ class TcgDex(
     /** Full set documents, kept as they are opened rather than fetched up front. */
     private val setDetails = mutableMapOf<String, RemoteSetDetail>()
 
+    /** Press runs per card, per set. Only ever filled with a complete answer. */
+    private val setVariants = mutableMapOf<String, Map<String, RemoteVariants>>()
+
     /**
      * Cards matching a name fragment.
      *
@@ -107,6 +110,61 @@ class TcgDex(
             )
         }
     }
+
+    /**
+     * Which press runs each card in a set was printed in, keyed by card id.
+     *
+     * This is the one question the list endpoints cannot answer. A set document carries
+     * only a thin row per card -- id, name, number, art -- and the `variants` flags saying
+     * whether a card exists as a holo or a reverse live on the full card document, which
+     * is one request each. For a 250-card set that is 250 requests, and the whole point of
+     * a master-set binder is that it is one button.
+     *
+     * GraphQL takes them in batches instead: an aliased `card(id:)` per card in a single
+     * POST, a few dozen at a time so no one request is enormous and the batches overlap on
+     * the wire. A 200-card set lands in about six seconds and ~25KB, and is then held for
+     * the life of the process like every other index here.
+     *
+     * A batch that fails is dropped rather than failing the set, so a flaky connection
+     * costs a card its holo pocket instead of costing the whole binder. Nothing is cached
+     * unless every card answered, so the next attempt is a real retry rather than a replay
+     * of a bad afternoon.
+     */
+    suspend fun variantsInSet(setId: String): Map<String, RemoteVariants> {
+        setVariants[setId]?.let { return it }
+
+        // Catalog-issued ids only. These are interpolated into a query string unescaped,
+        // and the one thing that must never be true is that a card id can close a literal.
+        val ids = cardsInSet(setId).map { it.id }
+            .filter { id -> id.isNotEmpty() && id.all { it.isLetterOrDigit() || it in "-._" } }
+        if (ids.isEmpty()) return emptyMap()
+
+        val fetched = coroutineScope {
+            ids.chunked(VARIANT_BATCH).map { chunk -> async { variantBatch(chunk) } }.awaitAll()
+        }.fold(emptyMap<String, RemoteVariants>()) { all, batch -> all + batch }
+
+        if (fetched.size == ids.size) setVariants[setId] = fetched
+        return fetched
+    }
+
+    /** One POST, one aliased `card` query per id. Empty if the batch could not be read. */
+    private suspend fun variantBatch(ids: List<String>): Map<String, RemoteVariants> =
+        runCatching {
+            val query = ids.mapIndexed { index, id ->
+                "c$index: card(id: \"$id\") { id variants { normal holo reverse firstEdition wPromo } }"
+            }.joinToString(separator = " ", prefix = "{ ", postfix = " }")
+
+            val response = client.post("$BASE/graphql") {
+                contentType(ContentType.Application.Json)
+                setBody(GraphQlRequest(query))
+            }
+            if (!response.status.isSuccess()) return emptyMap()
+
+            response.body<GraphQlVariantsEnvelope>().data.orEmpty().values
+                .filterNotNull()
+                .mapNotNull { row -> row.variants?.let { row.id to it } }
+                .toMap()
+        }.getOrDefault(emptyMap())
 
     /** The set index, fetched at most once and then held for the life of the process. */
     suspend fun sets(): Map<String, RemoteSet> {
@@ -217,6 +275,15 @@ class TcgDex(
         private const val BASE = "https://api.tcgdex.net/v2"
 
         /**
+         * How many cards go into one batched variants query.
+         *
+         * Small enough that a dropped batch costs a handful of pockets rather than a
+         * quarter of the binder, large enough that a big set is five or six overlapping
+         * requests rather than fifty.
+         */
+        private const val VARIANT_BATCH = 40
+
+        /**
          * Everything the browse screen needs and nothing else.
          *
          * Card lists are deliberately absent: they are two orders of magnitude bigger than
@@ -322,6 +389,14 @@ data class CatalogIndex(
 
 @Serializable
 private data class GraphQlRequest(val query: String)
+
+/** One row of a batched variants query. Only the flags are asked for, so only they arrive. */
+@Serializable
+private data class VariantRow(val id: String, val variants: RemoteVariants? = null)
+
+/** An aliased batch answers as an object keyed by alias, so `data` is a map, not a list. */
+@Serializable
+private data class GraphQlVariantsEnvelope(val data: Map<String, VariantRow?>? = null)
 
 /** GraphQL answers 200 with the errors inside the body; a missing `data` is the failure. */
 @Serializable

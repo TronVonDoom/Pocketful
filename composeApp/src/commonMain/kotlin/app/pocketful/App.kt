@@ -40,6 +40,7 @@ import app.pocketful.domain.variantBriefs
 import app.pocketful.data.CatalogSync
 import app.pocketful.data.RemoteSet
 import app.pocketful.data.SearchHit
+import app.pocketful.data.SetPocket
 import app.pocketful.state.LocalAppSettings
 import app.pocketful.state.rememberCardLookup
 import app.pocketful.state.rememberCatalogBrowser
@@ -149,6 +150,9 @@ fun App() {
     // Search: the card waiting to be recorded, and whether one is still being fetched.
     var addingCard by remember { mutableStateOf<CardBrief?>(null) }
     var importingCard by remember { mutableStateOf(false) }
+    // True while a master set's press runs are being read out of the catalog. Held here
+    // rather than in the set screen because the screen goes away when the binder opens.
+    var buildingMasterSet by remember { mutableStateOf(false) }
     // The set being looked at, as a route rather than a sheet. A set is a place -- it has
     // information, a checklist and an action of its own -- and a summary card floating
     // over the tab you found it on could carry none of that without becoming a screen
@@ -251,22 +255,48 @@ fun App() {
      * have, so the honest starting point is the whole set with everything still to find.
      * Ticking cards off is one gesture per handful from inside the binder.
      */
-    val createBinderForSet: (RemoteSet, List<SearchHit>) -> Unit = { set, cards ->
+    val createBinderForSet: (RemoteSet, List<SetPocket>, Boolean) -> Unit = { set, pockets, master ->
         val layout = store.settings.defaultLayout
-        val count = cards.size.takeIf { it > 0 } ?: set.officialCount ?: 0
+        val count = pockets.size.takeIf { it > 0 } ?: set.officialCount ?: 0
         val id = store.createSetBinder(
-            name = set.name,
-            subtitle = "${count.takeIf { it > 0 } ?: "?"} cards · ${set.id.uppercase()}",
+            name = if (master) "${set.name} master set" else set.name,
+            // A master set is counted in pockets rather than in cards, because it holds
+            // more pockets than the set has cards and a subtitle claiming 358 cards for a
+            // 201-card set reads as a bug in the checklist.
+            subtitle = "${count.takeIf { it > 0 } ?: "?"} ${if (master) "pockets" else "cards"} · " +
+                set.id.uppercase(),
             layout = layout,
             sheetCount = count.takeIf { it > 0 }?.let { sheetsToHold(it, layout) }
                 ?: store.settings.defaultSheetCount,
             spineColor = SpineSwatches.random().value,
             sourceSetId = set.id,
-            cards = cards,
+            pockets = pockets,
         )
         landingOrdinal = null
         closeDetails()
         openBinderId = id
+    }
+
+    /**
+     * The same thing, one pocket per *variation* rather than per card.
+     *
+     * Asynchronous where the plain build is instant, and unavoidably so: a set listing
+     * says which cards exist but not which press runs each was printed in, and that is the
+     * entire question a master set turns on. The wait is a few seconds on a big set and it
+     * is paid once -- the answer is held for the rest of the session, so a second master
+     * set of the same set is immediate.
+     *
+     * Nothing is built if the press runs could not be read. A binder called "master set"
+     * that quietly turned out to be the plain checklist is worse than a button that says
+     * it could not do it, because the first one is only discovered a hundred pockets in.
+     */
+    val createMasterSetForSet: (RemoteSet, List<SearchHit>) -> Unit = { set, cards ->
+        buildingMasterSet = true
+        scope.launch {
+            val pockets = browser.masterSetOf(set.id, cards)
+            buildingMasterSet = false
+            if (pockets.isNotEmpty()) createBinderForSet(set, pockets, true)
+        }
     }
 
     /**
@@ -438,8 +468,16 @@ fun App() {
                             existingBinder = snapshot.binders
                                 .firstOrNull { it.sourceSetId == current.set.id },
                             importing = importingCard,
+                            buildingMasterSet = buildingMasterSet,
                             onBack = { openSet = null },
-                            onCreateBinder = { cards -> createBinderForSet(current.set, cards) },
+                            onCreateBinder = { cards ->
+                                createBinderForSet(
+                                    current.set,
+                                    cards.map { SetPocket(it, Finish.NON_HOLO) },
+                                    false,
+                                )
+                            },
+                            onCreateMasterSet = { cards -> createMasterSetForSet(current.set, cards) },
                             onOpenBinder = openBinder,
                             onAddCard = { hit -> importRemoteCard(hit) },
                         )

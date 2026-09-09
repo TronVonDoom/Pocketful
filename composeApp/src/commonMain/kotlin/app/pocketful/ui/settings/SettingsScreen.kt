@@ -25,6 +25,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -111,6 +112,15 @@ fun SettingsScreen(
                         description = "Animated sheen on foil cards. Turn it off to save battery.",
                         checked = settings.holoShimmer,
                         onCheckedChange = { value -> onUpdate { it.copy(holoShimmer = value) } },
+                    )
+                    Hairline(Modifier.padding(horizontal = 14.dp))
+                    SettingToggle(
+                        title = "Foil sparkle",
+                        description = "Specks of glitter that catch the sheen as it crosses. " +
+                            "Off leaves the plain sweep.",
+                        checked = settings.holoSparkle,
+                        onCheckedChange = { value -> onUpdate { it.copy(holoSparkle = value) } },
+                        enabled = settings.holoShimmer,
                     )
                     Hairline(Modifier.padding(horizontal = 14.dp))
                     SettingToggle(
@@ -309,9 +319,14 @@ private fun SettingToggle(
     description: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    /** For a setting that only means something while another one is on. */
+    enabled: Boolean = true,
 ) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+        Modifier
+            .fillMaxWidth()
+            .alpha(if (enabled) 1f else 0.45f)
+            .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -320,7 +335,7 @@ private fun SettingToggle(
             Text(description, color = Ink.TextTertiary, style = MaterialTheme.typography.bodySmall)
         }
         Spacer(Modifier.width(14.dp))
-        ToggleSwitch(checked = checked, onCheckedChange = onCheckedChange)
+        ToggleSwitch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 

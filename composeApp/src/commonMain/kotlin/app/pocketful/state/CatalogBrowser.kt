@@ -5,10 +5,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import app.pocketful.data.CardImport
 import app.pocketful.data.CatalogIndex
 import app.pocketful.data.RemoteSeries
 import app.pocketful.data.RemoteSet
 import app.pocketful.data.SearchHit
+import app.pocketful.data.SetPocket
 import app.pocketful.data.TcgDex
 
 /**
@@ -83,6 +85,10 @@ class CatalogBrowser(private val api: TcgDex) {
     var error by mutableStateOf<String?>(null)
         private set
 
+    /** Why the last master set could not be worked out, if it could not be. */
+    var variantsError by mutableStateOf<String?>(null)
+        private set
+
     /**
      * How the two levels are ordered, held here rather than in the screen so that leaving
      * the tab and coming back does not silently undo a choice the user made.
@@ -138,6 +144,29 @@ class CatalogBrowser(private val api: TcgDex) {
         runCatching { api.cardsInSet(setId) }
             .onFailure { error = "Could not load that set's cards." }
             .getOrDefault(emptyList())
+
+    /**
+     * Every pocket a master set of one set needs: each card once per press run it exists in.
+     *
+     * Kept here rather than in the screen because it is the checklist and the press runs
+     * behind it having to agree, and because the screen that asks for it is torn down the
+     * moment the binder it produces is opened.
+     *
+     * Failure is reported separately from [error]. That one is the catalog being
+     * unreachable, which the search tab renders as a dead end; this one is a binder that
+     * could not be worked out on a catalog that is otherwise answering fine, and the only
+     * screen that should say so is the one with the button on it.
+     */
+    suspend fun masterSetOf(setId: String, cards: List<SearchHit>): List<SetPocket> {
+        variantsError = null
+        val variants = runCatching { api.variantsInSet(setId) }.getOrDefault(emptyMap())
+        if (variants.isEmpty()) {
+            variantsError = "Could not read which variations this set was printed in. " +
+                "Check your connection and try again."
+            return emptyList()
+        }
+        return CardImport.masterSet(cards, variants)
+    }
 }
 
 // ------------------------------------------------------------------- grouping

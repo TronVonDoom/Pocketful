@@ -101,7 +101,7 @@ fun CardArtTile(
                     artStem = artStem,
                     type = type,
                     modifier = Modifier.fillMaxSize().alpha(if (ghosted) 0.34f else 1f),
-                    shimmer = holo && !ghosted,
+                    holo = holo && !ghosted,
                 )
 
                 // A wanted card is drawn faint, and a faint card on a near-black ground

@@ -15,6 +15,17 @@ import app.pocketful.domain.Variant
 import app.pocketful.domain.VariantId
 
 /**
+ * One pocket of a binder built from a set: a card, and the press run it is being held
+ * open for.
+ *
+ * A plain set binder is one pocket per card, so every pocket carries the same finish and
+ * this pairing is a formality. A master set is not: the same Charizard needs a holo pocket
+ * and a reverse pocket, and those are two different variants at two different prices, so
+ * the pocket has to say which of them it is waiting for.
+ */
+data class SetPocket(val hit: SearchHit, val finish: Finish)
+
+/**
  * Turning a fetched card into catalog rows.
  *
  * The identity split the app is built on -- card / printing / variant -- has no
@@ -46,8 +57,10 @@ object CardImport {
     }
 
     /** Which finishes this printing actually exists in, per the upstream variant flags. */
-    fun finishesOf(card: RemoteCard): List<Finish> {
-        val flags = card.variants
+    fun finishesOf(card: RemoteCard): List<Finish> = finishesOf(card.variants)
+
+    /** The same question asked of the flags alone, which is how a set answers it in bulk. */
+    fun finishesOf(flags: RemoteVariants?): List<Finish> {
         val found = buildList {
             if (flags == null || flags.normal) add(Finish.NON_HOLO)
             if (flags?.holo == true) add(Finish.HOLO)
@@ -82,6 +95,27 @@ object CardImport {
     }
 
     /**
+     * Every pocket a master set needs, in the order they go into the binder.
+     *
+     * A master set is the set with every variation of every card in it, so the checklist
+     * fans out: one pocket per press run rather than one per card. Ordered card by card
+     * and then plainest finish first, which is how a master set is built in the hand --
+     * a card's normal, holo and reverse sit together, rather than the binder holding every
+     * normal in the set and then starting over at card one.
+     *
+     * A card the catalog could not be asked about falls back to the single pocket a plain
+     * checklist would have given it. A missing holo pocket is one the user can add in a
+     * gesture; a card missing outright is a hole in the checklist they have to notice
+     * first.
+     */
+    fun masterSet(
+        hits: List<SearchHit>,
+        variants: Map<String, RemoteVariants>,
+    ): List<SetPocket> = hits.flatMap { hit ->
+        finishesOf(variants[hit.id]).map { finish -> SetPocket(hit, finish) }
+    }
+
+    /**
      * Catalog rows for cards known only from a listing, in one pass.
      *
      * Building a want list for a 200-card set cannot mean 200 card fetches -- that is a
@@ -97,15 +131,14 @@ object CardImport {
      */
     fun stubAll(
         snapshot: CollectionSnapshot,
-        hits: List<SearchHit>,
-        finish: Finish = Finish.NON_HOLO,
+        pockets: List<SetPocket>,
         edition: Edition = Edition.UNLIMITED,
     ): Pair<CollectionSnapshot, List<VariantId>> {
         val cards = snapshot.cards.toMutableMap()
         val printings = snapshot.printings.toMutableMap()
         val variants = snapshot.variants.toMutableMap()
 
-        val ids = hits.map { hit ->
+        val ids = pockets.map { (hit, finish) ->
             val cardId = cardId(hit.id)
             val printingId = printingId(hit.id)
             val variantId = variantId(hit.id, finish, edition)

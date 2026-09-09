@@ -200,7 +200,7 @@ private fun FilledPocket(view: SlotView.CardSlot, shape: Shape) {
             artStem = view.imageUrl,
             type = view.type,
             modifier = Modifier.fillMaxSize(),
-            shimmer = view.isHolo && settings.holoShimmer,
+            holo = view.isHolo,
         )
 
         // With real art, the card prints its own name and number -- captioning it again
