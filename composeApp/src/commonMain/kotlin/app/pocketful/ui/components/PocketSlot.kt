@@ -38,6 +38,7 @@ import app.pocketful.domain.SlotView
 import app.pocketful.state.LocalAppSettings
 import app.pocketful.state.display
 import app.pocketful.ui.theme.AppIcons
+import app.pocketful.ui.theme.AppShape
 import app.pocketful.ui.theme.Ink
 import app.pocketful.ui.theme.tint
 
@@ -193,8 +194,6 @@ private fun BrokenPocket(view: SlotView.Broken, shape: Shape) {
 
 @Composable
 private fun FilledPocket(view: SlotView.CardSlot, shape: Shape) {
-    val settings = LocalAppSettings.current
-
     Box(Modifier.fillMaxSize()) {
         CardArtwork(
             artStem = view.imageUrl,
@@ -249,24 +248,14 @@ private fun FilledPocket(view: SlotView.CardSlot, shape: Shape) {
                         fontSize = 8.sp,
                         maxLines = 1,
                     )
-                    if (settings.showPocketPrices && !view.value.isZero) {
-                        Text(
-                            text = view.value.display(),
-                            color = Ink.Gold,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                        )
-                    }
+                    // Same pill as a card with art wears, in the same corner. The scrim
+                    // is already doing the contrast work here, so it arrives without its
+                    // own ground rather than as a darker patch on a dark strip.
+                    PocketStatusPill(view, grounded = false)
                 }
             }
-        } else if (settings.showPocketPrices && !view.value.isZero) {
-            PocketChip(
-                text = view.value.display(),
-                background = Color.Black.copy(alpha = 0.72f),
-                foreground = Ink.Gold,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
-            )
+        } else {
+            PocketStatusPill(view, modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp))
         }
 
         view.gradeLabel?.let { grade ->
@@ -379,6 +368,56 @@ private fun DashedBorder(color: Color, corner: Dp) {
                 ),
             ),
         )
+    }
+}
+
+/**
+ * What a pocket says about the copy in it, in one object in the bottom corner.
+ *
+ * Three facts that used to have nowhere to live -- is it foil, is it on the table, what is
+ * it worth -- and giving each its own corner chip would have put four chips on a card the
+ * size of a stamp. Grouped instead: they are all answers to "what is this copy", as
+ * opposed to the grade and condition marks up top, which are answers to "what state is it
+ * in". Each piece appears only when it has something to say, so a plain near-mint card you
+ * are keeping still wears nothing but its price, and a card with nothing to report wears
+ * nothing at all.
+ *
+ * [grounded] is false where a caption scrim is already behind it -- a second dark patch on
+ * an already-dark strip reads as a rendering fault rather than as a pill.
+ */
+@Composable
+private fun PocketStatusPill(
+    view: SlotView.CardSlot,
+    modifier: Modifier = Modifier,
+    grounded: Boolean = true,
+) {
+    val settings = LocalAppSettings.current
+    val showPrice = settings.showPocketPrices && !view.value.isZero
+    if (!view.forTrade && !view.isHolo && !showPrice) return
+
+    Row(
+        modifier
+            .clip(AppShape.Pill)
+            .background(if (grounded) Color.Black.copy(alpha = 0.72f) else Color.Transparent)
+            .padding(horizontal = if (grounded) 4.dp else 0.dp, vertical = if (grounded) 2.dp else 0.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (view.forTrade) {
+            Icon(AppIcons.Trade, "Up for trade", Modifier.size(9.dp), tint = Ink.Gain)
+        }
+        if (view.isHolo) {
+            Icon(AppIcons.Sparkle, view.finish.label, Modifier.size(9.dp), tint = Ink.Foil)
+        }
+        if (showPrice) {
+            Text(
+                text = view.value.display(),
+                color = Ink.Gold,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+            )
+        }
     }
 }
 

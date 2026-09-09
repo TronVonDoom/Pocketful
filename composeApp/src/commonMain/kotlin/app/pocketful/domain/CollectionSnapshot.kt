@@ -133,6 +133,7 @@ data class CollectionSnapshot(
                     conditionShort = copy.condition.short,
                     gradeLabel = copy.grade?.label,
                     owned = true,
+                    forTrade = copy.forTrade,
                 )
             }
         }
@@ -180,6 +181,11 @@ sealed interface SlotView {
         val conditionShort: String?,
         val gradeLabel: String?,
         val owned: Boolean,
+        /**
+         * Offered in trade. A want cannot be, so this is always false for an unowned
+         * pocket -- the flag lives on the physical copy, and there is not one yet.
+         */
+        val forTrade: Boolean = false,
     ) : SlotView {
         val isHolo: Boolean
             get() = finish != Finish.NON_HOLO

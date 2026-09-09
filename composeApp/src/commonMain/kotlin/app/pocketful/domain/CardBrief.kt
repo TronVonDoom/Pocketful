@@ -92,10 +92,26 @@ fun CollectionSnapshot.variantBriefs(variantId: VariantId): List<CardBrief> {
         .mapNotNull { brief(it.id) }
 }
 
-/** The whole catalog as rows, in set then printed order. */
+/** The whole catalog as rows, in set then printed order. One row per press run. */
 fun CollectionSnapshot.allBriefs(): List<CardBrief> =
     variants.keys.mapNotNull { brief(it) }
         .sortedWith(compareBy({ it.setName }, { it.numericOrder }, { it.number }))
+
+/**
+ * The same rows, collapsed to one per printing.
+ *
+ * The catalog fans a single upstream card out into a variant per press run, so importing
+ * one Grubbin can put a normal *and* a reverse holo in the catalog -- and a picker that
+ * lists variants shows two rows with the same art, the same name and the same number
+ * under them, which reads as the app having saved the card twice.
+ *
+ * So anything whose job is "pick a card" lists printings, and the finish is chosen in the
+ * sheet that opens afterwards, where each one's price is visible next to it. The plainest
+ * finish stands for the group, matching the order [variantBriefs] offers them in, so the
+ * representative row is also the picker's default answer.
+ */
+fun List<CardBrief>.byPrinting(): List<CardBrief> =
+    groupBy { it.printingId }.values.map { group -> group.minBy { it.finish.ordinal } }
 
 /**
  * Ranked search. Exact and prefix name matches are floated above substring hits, because

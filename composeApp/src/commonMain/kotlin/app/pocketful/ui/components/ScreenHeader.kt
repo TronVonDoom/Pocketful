@@ -70,6 +70,17 @@ fun ScreenHeader(
      * own name rather than a signpost repeating the tab you just tapped.
      */
     eyebrow: String? = null,
+    /**
+     * The thing's name, in the rail beside the back button, instead of the tracked
+     * eyebrow above it.
+     *
+     * For a screen whose identity is one short line and whose content wants the height --
+     * a binder page, where the page itself is the screen. Naming the binder in the rail
+     * and putting its figures straight underneath saves the eyebrow, the headline block
+     * and the gap between them, which on a phone is the difference between a 3x3 page
+     * that fits and one you scroll to see the bottom row of.
+     */
+    railTitle: String? = null,
     title: String? = null,
     subtitle: String? = null,
     headline: String? = null,
@@ -99,7 +110,7 @@ fun ScreenHeader(
         // The rail is drawn only when it carries something. On a tab screen with no back
         // button and no actions it would otherwise be an invisible band of padding above
         // the number -- exactly the height the old titles were removed to reclaim.
-        if (leading != null || actions != null || eyebrow != null) {
+        if (leading != null || actions != null || eyebrow != null || railTitle != null) {
             Row(
                 Modifier.fillMaxWidth().height(34.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -108,10 +119,17 @@ fun ScreenHeader(
                     leading()
                     Spacer(Modifier.width(10.dp))
                 }
-                if (eyebrow != null) {
-                    Eyebrow(eyebrow, Modifier.weight(1f))
-                } else {
-                    Spacer(Modifier.weight(1f))
+                when {
+                    railTitle != null -> Text(
+                        text = railTitle,
+                        color = Ink.TextPrimary,
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    eyebrow != null -> Eyebrow(eyebrow, Modifier.weight(1f))
+                    else -> Spacer(Modifier.weight(1f))
                 }
                 if (actions != null) {
                     Spacer(Modifier.width(10.dp))
@@ -124,8 +142,10 @@ fun ScreenHeader(
             }
         }
 
-        if (title != null || cover != null) {
-            Spacer(Modifier.height(10.dp))
+        // Drawn for a subtitle on its own too: a header that names its subject in the rail
+        // still has somewhere to put the line describing it.
+        if (title != null || cover != null || subtitle != null) {
+            Spacer(Modifier.height(if (title == null && cover == null) 4.dp else 10.dp))
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,

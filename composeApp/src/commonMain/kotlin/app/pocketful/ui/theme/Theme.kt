@@ -39,6 +39,8 @@ object Ink {
     val TextDisabled = Color(0xFF3C4351)
 
     val Gold = Color(0xFFE3B45C)
+    /** Foil catching the light. Cool where gold is warm, so a holo mark never reads as a price. */
+    val Foil = Color(0xFF7DD3E8)
     val Gain = Color(0xFF4ADE80)
     val Loss = Color(0xFFF87171)
     val Accent = Color(0xFF6E8BFF)

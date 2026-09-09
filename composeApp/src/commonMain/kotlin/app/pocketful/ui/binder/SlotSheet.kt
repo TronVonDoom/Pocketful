@@ -22,6 +22,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.pocketful.domain.Binder
@@ -42,6 +43,7 @@ import app.pocketful.domain.SlotContent
 import app.pocketful.domain.Supertype
 import app.pocketful.domain.allBriefs
 import app.pocketful.domain.brief
+import app.pocketful.domain.byPrinting
 import app.pocketful.domain.variantBriefs
 import app.pocketful.domain.search
 import app.pocketful.data.SearchHit
@@ -100,7 +102,10 @@ private sealed interface Step {
     data object CreateCard : Step
 }
 
-private enum class Intent(val label: String) { Own("I own it"), Want("I want it") }
+private enum class Intent(val label: String, val accent: Color) {
+    Own("I own it", Ink.Gain),
+    Want("I want it", Ink.Wanted),
+}
 
 /**
  * Everything that happens to one pocket.
@@ -506,10 +511,20 @@ private fun ColumnScope.BrowseStep(
     // problem -- local results appear instantly and online ones arrive a moment later.
     LaunchedEffect(query) { lookup.onQueryChanged(query) }
 
-    val catalog = remember(snapshot) { snapshot.allBriefs() }
+    // One row per printing, not per press run. Importing one card writes a variant for
+    // every finish it was printed in, so a catalog holding a single Grubbin listed it
+    // twice -- once as the normal, once as the reverse -- with the same art, name and
+    // number on both rows. Which finish is in your hand is asked on the next step, where
+    // the price of each is shown against it.
+    val catalog = remember(snapshot) { snapshot.allBriefs().byPrinting() }
     val results = remember(catalog, query) { catalog.search(query, limit = 30) }
+    // Counted per printing to match, so a row standing for three variants does not claim
+    // you own none of it because the copy you own is the reverse rather than the normal.
     val ownedCounts = remember(snapshot) {
-        snapshot.copies.values.groupingBy { it.variantId }.eachCount()
+        snapshot.copies.values
+            .mapNotNull { snapshot.variants[it.variantId]?.printingId }
+            .groupingBy { it }
+            .eachCount()
     }
     val unfiled = remember(snapshot) {
         snapshot.copies.values
@@ -524,11 +539,16 @@ private fun ColumnScope.BrowseStep(
     )
 
     SheetBody {
+        // Each side wears the colour it means everywhere else -- green for a card you
+        // have, violet for one you are hunting -- so which way this is set is legible
+        // without reading it. It decides whether the next tap files a card you are
+        // holding or opens a gap for one you are not, and that is worth a colour.
         SegmentedControl(
             options = Intent.entries.toList(),
             selected = intent,
             onSelect = { intent = it },
             label = { it.label },
+            accent = { it.accent },
         )
 
         SearchField(
@@ -568,6 +588,9 @@ private fun ColumnScope.BrowseStep(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SectionHeader(
                     when {
+                        // Counting printings rather than press runs makes a catalog of
+                        // one an ordinary thing to see, so it has to be able to say so.
+                        query.isBlank() && catalog.size == 1 -> "Catalog · 1 card"
                         query.isBlank() -> "Catalog · ${catalog.size} cards"
                         results.size == 1 -> "1 match"
                         else -> "${results.size} matches"
@@ -582,7 +605,7 @@ private fun ColumnScope.BrowseStep(
                     )
                 }
                 results.forEach { brief ->
-                    val ownedCount = ownedCounts[brief.variantId] ?: 0
+                    val ownedCount = ownedCounts[brief.printingId] ?: 0
                     CardListRow(
                         brief = brief,
                         leadingBadge = if (ownedCount > 0) "own $ownedCount" else null,
@@ -663,18 +686,25 @@ private fun ColumnScope.BrowseStep(
 
         Hairline()
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Side by side rather than stacked. Neither is the common path -- both are things
+        // you reach for once both catalogs have failed you -- and two full-width buttons
+        // at the foot of the sheet took as much room as three card rows.
+        //
+        // No glyphs on these two. A plus and a minus beside a label that has to wrap puts
+        // the icon against the middle of a two-line block and leaves about fifteen
+        // characters a line to say something neither icon could have said on its own.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AppOutlineButton(
-                label = "Add a card the catalog is missing",
+                label = "Add a missing card",
                 onClick = onCreateCard,
-                modifier = Modifier.fillMaxWidth(),
-                icon = AppIcons.Plus,
+                modifier = Modifier.weight(1f),
+                maxLines = 2,
             )
             AppOutlineButton(
-                label = "Leave this pocket deliberately blank",
+                label = "Leave this pocket blank",
                 onClick = onSpacer,
-                modifier = Modifier.fillMaxWidth(),
-                icon = AppIcons.Minus,
+                modifier = Modifier.weight(1f),
+                maxLines = 2,
             )
         }
     }

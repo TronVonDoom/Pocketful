@@ -35,9 +35,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.pocketful.domain.Binder
 import app.pocketful.domain.CollectionSnapshot
+import app.pocketful.domain.Money
 import app.pocketful.domain.SheetSide
 import app.pocketful.domain.SlotContent
 import app.pocketful.domain.ValueSummary
+import app.pocketful.state.display
 import app.pocketful.state.displayOrNull
 import app.pocketful.ui.components.AppSheet
 import app.pocketful.ui.components.CARD_ASPECT_RATIO
@@ -51,7 +53,7 @@ import app.pocketful.ui.components.SelectionConfirm
 import app.pocketful.ui.components.SelectionIsland
 import app.pocketful.ui.components.SheetBody
 import app.pocketful.ui.components.SheetHeader
-import app.pocketful.ui.components.Tag
+import app.pocketful.ui.components.Stat
 import app.pocketful.ui.components.tappable
 import app.pocketful.ui.nav.islandBottomInset
 import app.pocketful.ui.nav.IslandSurface
@@ -236,6 +238,11 @@ fun BinderPageScreen(
             PageIsland(
                 binder = binder,
                 faceIndex = pagerState.currentPage,
+                // What the page you are looking at is worth, as opposed to the whole
+                // binder in the header. A page is the unit this screen actually deals in
+                // -- it is what you turn to, select across and photograph -- and until
+                // now the only way to total one was to read sixteen pocket chips.
+                pageValue = snapshot.pageValue(binder, pagerState.currentPage).displayOrNull(),
                 onPrevious = {
                     val target = pagerState.currentPage - 1
                     if (target >= 0) scope.launch { pagerState.animateScrollToPage(target) }
@@ -271,6 +278,17 @@ fun BinderPageScreen(
     )
 }
 
+/**
+ * The binder, named once and summed up on one line.
+ *
+ * This screen is the only one in the app whose content has a *shape* -- a page of pockets
+ * that has to sit on a phone without its bottom row falling off -- so it is the one place
+ * a header cannot spend four blocks saying what it is about. The name moves into the rail
+ * beside the back button, the display-size total and the row of tags collapse into a
+ * single stat rail, and the eyebrow goes entirely: "Binder · 9-pocket" was a label naming
+ * the screen you were already looking at, and the page underneath draws its own grid more
+ * plainly than any words could.
+ */
 @Composable
 private fun BinderHeader(
     binder: Binder,
@@ -281,11 +299,8 @@ private fun BinderHeader(
     onSelectPage: () -> Unit,
 ) {
     ScreenHeader(
-        eyebrow = "Binder · ${binder.layout.displayName}",
-        title = binder.name,
+        railTitle = binder.name,
         subtitle = binder.subtitle,
-        headline = summary.marketValue.format(),
-        summary = summary,
         modifier = Modifier.padding(horizontal = 16.dp),
         leading = { CircleIconButton(AppIcons.ChevronLeft, "Back to shelf", onBack, size = 34.dp) },
         actions = {
@@ -300,21 +315,25 @@ private fun BinderHeader(
             )
             HeaderAction(AppIcons.Edit, "Edit binder", onEdit)
         },
-        tags = {
-            Tag(
-                text = binder.layout.fullLabel,
-                color = Color(binder.spineColor),
-                background = Color(binder.spineColor).copy(alpha = 0.16f),
-            )
-            Tag("${summary.ownedCount}/${binder.capacity} filled")
+        // Four cells at most, so this stays one row. Gain and wanted drop out when there
+        // is nothing to report rather than showing a dash, which leaves a young binder
+        // with the two figures it actually has instead of four, half of them empty.
+        stats = buildList {
+            add(Stat(summary.marketValue.display(), "value", Ink.Gold))
+            summary.gainPercentLabel?.let {
+                add(Stat(it, "gain", if (summary.unrealizedGain.cents >= 0) Ink.Gain else Ink.Loss))
+            }
+            add(Stat("${summary.ownedCount}/${binder.capacity}", "filled"))
             if (summary.wantedCount > 0) {
-                Tag(
-                    text = listOfNotNull(
-                        "${summary.wantedCount} wanted",
-                        summary.costToComplete.displayOrNull(),
-                    ).joinToString(" · "),
-                    color = Ink.Wanted,
-                    background = Ink.Wanted.copy(alpha = 0.14f),
+                add(
+                    Stat(
+                        value = listOfNotNull(
+                            "${summary.wantedCount}",
+                            summary.costToComplete.displayOrNull(),
+                        ).joinToString(" · "),
+                        label = "wanted",
+                        accent = Ink.Wanted,
+                    ),
                 )
             }
         },
@@ -380,6 +399,20 @@ private fun BinderFace(
     }
 }
 
+/**
+ * What the cards on one page are worth.
+ *
+ * Owned copies only. A page half full of wants would otherwise total up the cost of
+ * finishing it and print that in the same place as money you have actually spent, which
+ * is the one arithmetic error a collection tracker must never make.
+ */
+private fun CollectionSnapshot.pageValue(binder: Binder, faceIndex: Int): Money =
+    Money(
+        binder.face(faceIndex)
+            .filterIsInstance<SlotContent.Filled>()
+            .sumOf { slot -> copies[slot.copyId]?.let { valueOf(it).cents } ?: 0L },
+    )
+
 /** Adds or removes one pocket. The whole vocabulary a selection needs. */
 private fun Set<Int>.toggled(ordinal: Int): Set<Int> =
     if (ordinal in this) this - ordinal else this + ordinal
@@ -392,6 +425,7 @@ private fun Set<Int>.toggled(ordinal: Int): Set<Int> =
 private fun PageIsland(
     binder: Binder,
     faceIndex: Int,
+    pageValue: String?,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onJump: () -> Unit,
@@ -430,7 +464,8 @@ private fun PageIsland(
                 maxLines = 1,
             )
             Text(
-                text = listOfNotNull("sheet ${location.sheetIndex + 1}", sideLabel).joinToString(" · "),
+                text = listOfNotNull("sheet ${location.sheetIndex + 1}", sideLabel, pageValue)
+                    .joinToString(" · "),
                 color = Ink.TextTertiary,
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,

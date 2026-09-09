@@ -372,7 +372,7 @@ fun SettingsScreen(
                         // Read from the generated AppVersion rather than typed here, so
                         // the number on this row is the number the updater compares
                         // against a release tag and cannot drift from it.
-                        DetailRow("Pocketful", "v${AppVersion.NAME} (${AppVersion.CODE})")
+                        DetailRow("Pocketful", AppVersion.label)
                         DetailRow("Price data", if (priced > 0) "TCGplayer via TCGdex" else "none yet")
                         DetailRow("Storage", "on this device")
                     }

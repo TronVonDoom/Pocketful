@@ -358,7 +358,9 @@ private fun BinderTile(
     StorageTile(
         cover = { BinderCover(binder, width = 32.dp) },
         name = binder.name,
-        caption = "${binder.layout.fullLabel} · ${summary.ownedCount}/${binder.capacity}",
+        // The grid is drawn on the cover, so the caption does not spell it out again --
+        // "9-pocket - 3x3 - 12/40" was two facts and a picture of the third.
+        caption = "${binder.layout.displayName} · ${summary.ownedCount}/${binder.capacity}",
         value = summary.marketValue.display(),
         accent = spine,
         gainLabel = summary.gainPercentLabel,

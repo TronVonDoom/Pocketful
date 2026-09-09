@@ -146,7 +146,14 @@ fun AppButton(
     }
 }
 
-/** A bordered, transparent button for the secondary action in a pair. */
+/**
+ * A bordered, transparent button for the secondary action in a pair.
+ *
+ * [maxLines] is what lets two of these share a row. At half width a sentence-length label
+ * ellipsises to nothing useful, and the alternative -- cutting the words down until they
+ * fit on one line -- costs the button the thing it was saying. Two lines of 13sp still
+ * clear the 48dp floor, so a paired button is the same height as a full-width one.
+ */
 @Composable
 fun AppOutlineButton(
     label: String,
@@ -154,16 +161,17 @@ fun AppOutlineButton(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
     enabled: Boolean = true,
+    maxLines: Int = 1,
 ) {
     val foreground = if (enabled) Ink.TextSecondary else Ink.TextDisabled
 
     Row(
         modifier
-            .height(48.dp)
+            .heightIn(min = 48.dp)
             .clip(AppShape.Small)
             .border(1.dp, if (enabled) Ink.Outline else Ink.OutlineFaint, AppShape.Small)
             .tappable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -175,8 +183,9 @@ fun AppOutlineButton(
             text = label,
             color = foreground,
             style = MaterialTheme.typography.labelLarge,
-            maxLines = 1,
+            maxLines = maxLines,
             overflow = TextOverflow.Ellipsis,
+            textAlign = if (maxLines > 1) TextAlign.Center else null,
         )
     }
 }
@@ -259,7 +268,18 @@ fun ChoiceChip(
     }
 }
 
-/** A run of mutually exclusive options that share one track. */
+/**
+ * A run of mutually exclusive options that share one track.
+ *
+ * The picked segment used to be [Ink.SurfaceHigh] on [Ink.SurfaceRaised] -- two greys
+ * eight points apart, which is a difference you can find if you already know which side
+ * you chose and not otherwise. On a control like "I own it / I want it", where picking
+ * the wrong side quietly files a card you are holding as one you are hunting, that is not
+ * a contrast to economise on. So the selection is now a tinted, outlined pill with the
+ * label in the accent's own colour, and [accent] lets a caller give each option the colour
+ * it already means elsewhere in the app -- wanted is violet on every other screen, and it
+ * should not go grey the moment it becomes a segment.
+ */
 @Composable
 fun <T> SegmentedControl(
     options: List<T>,
@@ -267,6 +287,7 @@ fun <T> SegmentedControl(
     onSelect: (T) -> Unit,
     label: (T) -> String,
     modifier: Modifier = Modifier,
+    accent: (T) -> Color = { Ink.Accent },
 ) {
     Row(
         modifier
@@ -278,19 +299,30 @@ fun <T> SegmentedControl(
     ) {
         options.forEach { option ->
             val isSelected = option == selected
+            val tint = accent(option)
+            val background by animateColorAsState(
+                if (isSelected) tint.copy(alpha = 0.20f) else Color.Transparent,
+                label = "segmentBackground",
+            )
+            val outline by animateColorAsState(
+                if (isSelected) tint.copy(alpha = 0.65f) else Color.Transparent,
+                label = "segmentOutline",
+            )
             Box(
                 Modifier
                     .weight(1f)
                     .height(34.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(if (isSelected) Ink.SurfaceHigh else Color.Transparent)
+                    .background(background)
+                    .border(1.dp, outline, RoundedCornerShape(8.dp))
                     .clickable { onSelect(option) },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = label(option),
-                    color = if (isSelected) Ink.TextPrimary else Ink.TextTertiary,
+                    color = if (isSelected) tint else Ink.TextTertiary,
                     style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else null,
                     maxLines = 1,
                 )
             }

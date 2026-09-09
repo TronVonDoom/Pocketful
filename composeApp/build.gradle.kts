@@ -25,17 +25,14 @@ val appVersionCode: Int = providers.gradleProperty("pocketful.versionCode").get(
  * A four-line generated file costs less than an expect/actual pair per platform.
  */
 val generateAppVersion by tasks.registering {
-    val versionName = appVersionName
-    val versionCode = appVersionCode
     val outputDir = layout.buildDirectory.dir("generated/version/commonMain/kotlin")
-    inputs.property("versionName", versionName)
-    inputs.property("versionCode", versionCode)
-    outputs.dir(outputDir)
-    doLast {
-        val target = outputDir.get().asFile.resolve("app/pocketful")
-        target.mkdirs()
-        target.resolve("AppVersion.kt").writeText(
-            """
+
+    // The finished file, not the ingredients. Registering the version numbers as the only
+    // inputs made the task up to date whenever they had not changed -- including after an
+    // edit to the text below, which then sat in the build directory as a stale file that a
+    // clean build would silently replace with something different. The whole output is the
+    // input, so editing a line of it is a change Gradle can see.
+    val source = """
             package app.pocketful
 
             /**
@@ -45,15 +42,32 @@ val generateAppVersion by tasks.registering {
              * and `pocketful.versionCode` in gradle.properties. Do not edit -- edit those.
              */
             object AppVersion {
-                const val NAME: String = "$versionName"
-                const val CODE: Int = $versionCode
+                const val NAME: String = "$appVersionName"
+                const val CODE: Int = $appVersionCode
 
                 /** The git tag a release of this version is published under. */
                 val tag: String get() = "v${'$'}NAME"
+
+                /**
+                 * How a build names itself on screen: `v0.3.2_009`.
+                 *
+                 * The build number is padded rather than parenthesised. `v0.3.2 (9)` reads
+                 * as a version with a footnote after it; the padded suffix reads as part of
+                 * the same identifier, which is what it is -- and three digits means the
+                 * hundredth build sorts and aligns with the ninth instead of shunting the
+                 * text along by a character every time it rolls over.
+                 */
+                val label: String get() = "v${'$'}NAME" + "_" + CODE.toString().padStart(3, '0')
             }
 
-            """.trimIndent(),
-        )
+            """.trimIndent()
+
+    inputs.property("source", source)
+    outputs.dir(outputDir)
+    doLast {
+        val target = outputDir.get().asFile.resolve("app/pocketful")
+        target.mkdirs()
+        target.resolve("AppVersion.kt").writeText(source)
     }
 }
 

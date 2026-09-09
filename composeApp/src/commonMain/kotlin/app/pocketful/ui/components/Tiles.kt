@@ -24,7 +24,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -93,17 +95,42 @@ internal fun TileSurface(
     // one that is merely unselected. It dims and stops responding instead of being left
     // out of the grid, because "this game exists and is not wired up" is information.
     enabled: Boolean = true,
+    /**
+     * The colour of the thing on the tile, washed faintly into its ground and edge.
+     *
+     * A shelf of binders is recognised by colour long before it is read, and a grid of
+     * identical grey rectangles throws that away -- the spine colour was doing its work
+     * inside one 32dp drawing and nowhere else. Kept deliberately faint: enough that six
+     * tiles read as six different objects at arm's length, not so much that the grid
+     * turns into a colour chart and the values stop being the brightest thing on it.
+     */
+    accent: Color? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val outline by animateColorAsState(
-        targetValue = if (selected) Ink.Accent else Ink.OutlineFaint,
+        targetValue = when {
+            selected -> Ink.Accent
+            accent != null -> accent.copy(alpha = 0.30f)
+            else -> Ink.OutlineFaint
+        },
         label = "tileOutline",
     )
+    val ground = when {
+        selected -> SolidColor(Ink.Accent.copy(alpha = 0.10f))
+        // Top-weighted, so the wash reads as light falling across the tile rather than as
+        // a panel somebody filled in.
+        accent != null -> Brush.verticalGradient(
+            0f to accent.copy(alpha = 0.14f),
+            0.55f to Ink.Surface,
+            1f to Ink.Surface,
+        )
+        else -> SolidColor(Ink.Surface)
+    }
     Column(
         modifier
             .height(TileHeight)
             .clip(AppShape.Card)
-            .background(if (selected) Ink.Accent.copy(alpha = 0.10f) else Ink.Surface)
+            .background(ground)
             .border(if (selected) 2.dp else 1.dp, outline, AppShape.Card)
             .alpha(if (enabled) 1f else 0.45f)
             .tappable(enabled = enabled, pressScale = 0.975f, onLongClick = onLongClick, onClick = onClick)
@@ -113,26 +140,18 @@ internal fun TileSurface(
 }
 
 /**
- * The bottom line of a tile: the figure it is about, pushed to the floor.
- *
- * Anchored with a weighted spacer rather than left to fall wherever the content above it
- * ends, so the prices across a row of tiles line up even when one tile has a fill bar and
- * its neighbour does not. That shared baseline is most of what makes a fixed height look
- * deliberate instead of merely padded.
- */
-@Composable
-private fun ColumnScope.TileFooter(content: @Composable RowScope.() -> Unit) {
-    Spacer(Modifier.weight(1f))
-    Spacer(Modifier.height(9.dp))
-    Row(verticalAlignment = Alignment.Bottom, content = content)
-}
-
-/**
  * A binder or a container, as a tile.
  *
- * The cover sits on its own line above the name rather than beside it. At half width
- * there is not enough room for a cover, a name, a caption and a price on one row without
- * the name truncating to two words, and the name is the thing being looked for.
+ * Two blocks with air between them: who this is along the top, what it holds along the
+ * bottom. The cover used to open the tile on a line of its own, which spent a whole row
+ * of height saying something the tile then repeated in words underneath, and left the
+ * name sharing its line with nothing. So the name takes the top edge at full width -- it
+ * is the thing being hunted for, and it no longer truncates to two words -- and the cover
+ * drops to the floor to anchor the figures, where a drawing of a 3x3 page sits against
+ * the count of how many of those pockets are full.
+ *
+ * Everything below the name is pushed to that floor, so the values across a row of tiles
+ * line up whether or not their neighbours have a fill bar, a gain or a badge.
  */
 @Composable
 fun StorageTile(
@@ -154,44 +173,61 @@ fun StorageTile(
     onLongClick: (() -> Unit)? = null,
     selected: Boolean = false,
 ) {
-    TileSurface(onClick, modifier, onLongClick = onLongClick, selected = selected) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            cover()
-            Spacer(Modifier.weight(1f))
+    TileSurface(onClick, modifier, onLongClick = onLongClick, selected = selected, accent = accent) {
+        Row(verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = name,
+                    color = Ink.TextPrimary,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = caption,
+                    color = Ink.TextTertiary,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            // Beside the name rather than above it, so a binder with four cards still to
+            // find says so on the line already being read.
             when {
-                selected -> SelectionCheck()
-                badge != null -> Tag(badge, color = badgeColor, background = badgeColor.copy(alpha = 0.16f))
+                selected -> {
+                    Spacer(Modifier.width(8.dp))
+                    SelectionCheck()
+                }
+                badge != null -> {
+                    Spacer(Modifier.width(8.dp))
+                    Tag(badge, color = badgeColor, background = badgeColor.copy(alpha = 0.16f))
+                }
             }
         }
 
-        Spacer(Modifier.height(9.dp))
-        Text(
-            text = name,
-            color = Ink.TextPrimary,
-            style = MaterialTheme.typography.titleSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            text = caption,
-            color = Ink.TextTertiary,
-            style = MaterialTheme.typography.bodySmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        // All of the slack in one place, above the floor. One weighted spacer, not two:
+        // a second one further down would share the leftover height with this rather than
+        // sit under it, and the fill bar would drift into the middle of the tile.
+        Spacer(Modifier.weight(1f))
 
+        // A fill bar is a fact about the figures it touches, not a third line of the
+        // identity block, so it rides directly on top of them.
         if (fillFraction != null) {
-            Spacer(Modifier.height(8.dp))
             ProgressTrack(fraction = fillFraction, color = accent, height = 3.dp)
+            Spacer(Modifier.height(9.dp))
         }
 
-        TileFooter {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            cover()
+            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
             Text(
                 text = value,
                 color = Ink.TextPrimary,
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             gainLabel?.let {
                 Spacer(Modifier.width(6.dp))

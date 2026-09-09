@@ -30,6 +30,7 @@ import app.pocketful.domain.CollectionSnapshot
 import app.pocketful.domain.PrintingId
 import app.pocketful.domain.TcgGame
 import app.pocketful.domain.allBriefs
+import app.pocketful.domain.byPrinting
 import app.pocketful.domain.search
 import app.pocketful.state.CardLookup
 import app.pocketful.state.CatalogBrowser
@@ -123,10 +124,10 @@ fun SearchScreen(
     val matchingSets = remember(searchable, trimmed) { searchable.matching(trimmed) }
 
     val localCatalog = remember(snapshot) { snapshot.allBriefs() }
-    // One row per printing, not per press run. The catalog holds a normal, a holo and a
-    // reverse of the same card as three variants, and three tiles with the same art and
-    // the same number under them is a list that looks broken -- the finish is a choice
-    // made in the sheet that opens, where the price for each one is visible.
+    // One row per printing, not per press run -- see [byPrinting]. The finish is a choice
+    // made in the sheet that opens, where the price for each one is visible, and the sheet
+    // opens on whichever variant the tile stands for, so the representative row is also
+    // the default answer.
     val localResults = remember(localCatalog, trimmed, game, browser.sets) {
         if (trimmed.isEmpty()) {
             emptyList()
@@ -138,13 +139,7 @@ fun SearchScreen(
                 // stays visible, because a set nobody upstream recognises is far more
                 // likely to be a hand-typed printed card than anything digital.
                 .filter { game == null || browser.gameOfSet(it.setCode) == game }
-                .groupBy { it.printingId }
-                // The plainest finish stands for the group. Ranking inside a printing is
-                // by price, which would otherwise put a card's reverse holo forward as
-                // the face of it -- and the sheet opens on whichever one the tile is, so
-                // the representative is also the default answer.
-                .values
-                .map { group -> group.minBy { it.finish.ordinal } }
+                .byPrinting()
                 .take(20)
         }
     }
