@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.pocketful.data.RemoteSet
 import app.pocketful.data.SearchHit
+import app.pocketful.data.game
 import app.pocketful.domain.CardBrief
 import app.pocketful.domain.CollectionSnapshot
 import app.pocketful.domain.PrintingId
@@ -33,6 +34,7 @@ import app.pocketful.domain.search
 import app.pocketful.state.CardLookup
 import app.pocketful.state.CatalogBrowser
 import app.pocketful.state.CatalogOrder
+import app.pocketful.state.CatalogSize
 import app.pocketful.state.SeriesGroup
 import app.pocketful.state.displayOrNull
 import app.pocketful.ui.components.CardTile
@@ -63,11 +65,17 @@ import app.pocketful.ui.theme.Ink
  * inside it, which meant you had to decide where a card was going before you were allowed
  * to look it up.
  *
- * There are two ways in and one box. The search field is always a card search across
- * every game, because that is what people come to a search tab holding -- a name. What
- * sits below it is a browse: games, then that game's sets grouped into eras. A set opens
- * as a screen of its own rather than filtering this one, which is why the set filter that
- * used to live here is gone: a set is a place, not a narrowing of the search box.
+ * There are two ways in and one box. The search field is a card search, and what sits
+ * below it is a browse: games, then that game's sets grouped into eras. A set opens as a
+ * screen of its own rather than filtering this one, which is why the set filter that used
+ * to live here is gone: a set is a place, not a narrowing of the search box.
+ *
+ * The game is the frame for both. At the top of the tab the search box reaches the whole
+ * catalog; inside a game it reaches only that game. That distinction exists because one
+ * upstream catalog answers for both the printed Pokémon TCG and Pokémon TCG Pocket, and a
+ * search that quietly mixed them was the same fault as an era list that did -- a Genetic
+ * Apex Pikachu offered beside a Base Set one, with nothing on the tile to tell them
+ * apart.
  *
  * Results from the local catalog and the live one are shown in separate sections rather
  * than merged. They mean different things -- one is a card the app can add instantly, the
@@ -102,23 +110,34 @@ fun SearchScreen(
     val trimmed = query.trim()
     val searching = trimmed.isNotEmpty()
 
-    // Re-sorting 218 sets is cheap once and wasteful sixty times a second, so it is tied
-    // to the three things that can change the answer rather than to the frame.
-    val arranged = remember(browser.groups, browser.seriesOrder, browser.setOrder) {
-        browser.arrange()
+    // Re-sorting a game's whole catalog is cheap once and wasteful sixty times a second,
+    // so it is tied to the things that can change the answer rather than to the frame.
+    val arranged = remember(browser.groups, browser.seriesOrder, browser.setOrder, game) {
+        game?.let { browser.arrange(it) }.orEmpty()
     }
-    val matchingSets = remember(browser.sets, trimmed) { browser.sets.matching(trimmed) }
+    // Scoped to the browsed game when there is one. A set search run from inside Scarlet
+    // and Violet that offered a mobile-game set would be the mixing this screen just undid.
+    val searchable = remember(browser.sets, game) {
+        game?.let { browser.setsOf(it) } ?: browser.sets
+    }
+    val matchingSets = remember(searchable, trimmed) { searchable.matching(trimmed) }
 
     val localCatalog = remember(snapshot) { snapshot.allBriefs() }
     // One row per printing, not per press run. The catalog holds a normal, a holo and a
     // reverse of the same card as three variants, and three tiles with the same art and
     // the same number under them is a list that looks broken -- the finish is a choice
     // made in the sheet that opens, where the price for each one is visible.
-    val localResults = remember(localCatalog, trimmed) {
+    val localResults = remember(localCatalog, trimmed, game, browser.sets) {
         if (trimmed.isEmpty()) {
             emptyList()
         } else {
             localCatalog.search(trimmed, limit = 40)
+                // Your own cards, narrowed to the game you are standing in. A printing
+                // knows its set and the set knows its game, so this is a lookup rather
+                // than a guess -- and a card whose set the catalog has never heard of
+                // stays visible, because a set nobody upstream recognises is far more
+                // likely to be a hand-typed printed card than anything digital.
+                .filter { game == null || browser.gameOfSet(it.setCode) == game }
                 .groupBy { it.printingId }
                 // The plainest finish stands for the group. Ranking inside a printing is
                 // by price, which would otherwise put a card's reverse holo forward as
@@ -156,7 +175,9 @@ fun SearchScreen(
                 // and a control that scrolls away from its own heading reads as debris.
                 ScreenHeader(
                     eyebrow = if (game == null) "Catalog" else "Browsing",
-                    title = game?.label ?: "Every card ever printed",
+                    // Not "every card ever printed" any more: one of the six games in
+                    // this list was never printed at all.
+                    title = game?.label ?: "Every card, every set",
                     subtitle = game?.publisher
                         ?: "Search by name, or work through a game set by set.",
                     leading = if (game == null) null else {
@@ -170,18 +191,29 @@ fun SearchScreen(
                         }
                     },
                     stats = buildList {
-                        if (browser.sets.isNotEmpty()) {
-                            add(Stat("${browser.sets.size}", "sets"))
-                            add(Stat("${browser.groups.size}", "eras"))
+                        // Inside a game these count that game. At the top of the tab they
+                        // count the catalog whole, which is the only place a total is the
+                        // answer to anything: "218 sets" under a Scarlet and Violet header
+                        // would be counting fifteen sets that header does not cover.
+                        val size = game?.let { browser.sizeOf(it) }
+                            ?: browser.sets.size.takeIf { it > 0 }
+                                ?.let { CatalogSize(it, browser.groups.size) }
+                        if (size != null) {
+                            add(Stat("${size.sets}", "sets"))
+                            add(Stat("${size.series}", "eras"))
                         }
-                        add(Stat("${TcgGame.browsable.size}", "games"))
+                        if (game == null) add(Stat("${TcgGame.browsable.size}", "games"))
                         if (localCatalog.isNotEmpty()) add(Stat("${localCatalog.size}", "yours"))
                     },
                     footer = {
                         SearchField(
                             value = query,
                             onValueChange = { query = it },
-                            placeholder = "Search every card ever printed",
+                            // Says what the box will actually reach. Inside a game it is
+                            // that game's cards, and a field still offering "every card"
+                            // would be promising results it has just been told to hide.
+                            placeholder = game?.let { "Search ${it.wordmark}" }
+                                ?: "Search every card in the catalog",
                         )
                     },
                 )
@@ -192,6 +224,7 @@ fun SearchScreen(
                     setMatches(matchingSets, onOpenSet)
                     cardResults(
                         query = trimmed,
+                        game = game,
                         localResults = localResults,
                         ownedCounts = ownedCounts,
                         lookup = lookup,
@@ -202,7 +235,7 @@ fun SearchScreen(
                     )
                 }
 
-                game == null -> gameGrid(onPick = onGameChange)
+                game == null -> gameGrid(browser = browser, onPick = onGameChange)
 
                 else -> setGrid(browser = browser, groups = arranged, onOpenSet = onOpenSet)
             }
@@ -215,18 +248,24 @@ fun SearchScreen(
 /**
  * The games, as the front door.
  *
- * Two to a row with the connected one first, and the ones without a catalog left in place
+ * Two to a row with the connected ones first, and the ones without a catalog left in place
  * rather than hidden. "Can I track my Lorcana in this" is a real question, and an app that
  * silently omits it reads as one that has never considered it.
+ *
+ * A connected game is captioned with what is actually behind it rather than with its
+ * publisher. That began as a nicety and became necessary: the Pokémon TCG and Pokémon TCG
+ * Pocket share a publisher, so two tiles both reading "The Pokémon Company" would leave
+ * the very split this screen exists to make looking like a duplicate row.
  */
-private fun LazyListScope.gameGrid(onPick: (TcgGame) -> Unit) {
+private fun LazyListScope.gameGrid(browser: CatalogBrowser, onPick: (TcgGame) -> Unit) {
     val games = TcgGame.browsable
     item { SectionHeader("Games · ${games.size}", Modifier.padding(top = 4.dp, bottom = 2.dp)) }
 
     tileRows(items = games, keyPrefix = "game", key = { it.name }) { entry ->
+        val size = if (entry.connected) browser.sizeOf(entry) else null
         GameTile(
             game = entry,
-            caption = entry.publisher,
+            caption = size?.caption ?: entry.note,
             onClick = { onPick(entry) },
             modifier = Modifier.weight(1f),
         )
@@ -234,8 +273,10 @@ private fun LazyListScope.gameGrid(onPick: (TcgGame) -> Unit) {
 
     item {
         Notice(
-            "Only Pokémon has a catalog behind it today. The others are listed so the app " +
-                "is honest about what it does not cover yet.",
+            "Pokémon is the game with a catalog behind it, and its printed sets and its " +
+                "mobile game are kept apart -- a TCG Pocket card is not something you can " +
+                "sleeve or sell, and nothing prices one. The rest are listed so the app is " +
+                "honest about what it does not cover yet.",
         )
     }
 }
@@ -243,9 +284,9 @@ private fun LazyListScope.gameGrid(onPick: (TcgGame) -> Unit) {
 /**
  * One game's whole catalog: every set, under the era it was printed in.
  *
- * Grouped rather than flat because 218 sets in one list is a wall to scroll, and the era
- * is the thing collectors actually navigate by -- "it's a Sun & Moon set" is how people
- * remember where a card lives.
+ * Grouped rather than flat because two hundred sets in one list is a wall to scroll, and
+ * the era is the thing collectors actually navigate by -- "it's a Sun & Moon set" is how
+ * people remember where a card lives.
  */
 private fun LazyListScope.setGrid(
     browser: CatalogBrowser,
@@ -266,7 +307,7 @@ private fun LazyListScope.setGrid(
         return
     }
 
-    item { SortPanel(browser, Modifier.padding(top = 2.dp)) }
+    item { SortPanel(browser, eras = groups.size, modifier = Modifier.padding(top = 2.dp)) }
     browser.error?.let { message -> item { Notice(message, error = true) } }
 
     groups.forEach { group ->
@@ -295,21 +336,28 @@ private fun LazyListScope.setGrid(
  * Two controls rather than one because they answer different questions. Someone working
  * through the modern game wants the newest era at the top but the sets inside it in the
  * order they were released, and a single ordering cannot give them that.
+ *
+ * The first of the two disappears for a game with a single era, which is the whole of
+ * Pokémon TCG Pocket. Four ways to sort a list of one is a control that cannot do
+ * anything, and one of those on screen teaches people that the other three might be the
+ * same.
  */
 @Composable
-private fun SortPanel(browser: CatalogBrowser, modifier: Modifier = Modifier) {
+private fun SortPanel(browser: CatalogBrowser, eras: Int, modifier: Modifier = Modifier) {
     Panel(modifier.fillMaxWidth(), padding = 12.dp) {
-        FieldLabel("Series")
-        Box(Modifier.height(6.dp))
-        SegmentedControl(
-            options = CatalogOrder.entries,
-            selected = browser.seriesOrder,
-            onSelect = { browser.seriesOrder = it },
-            label = { it.label },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Box(Modifier.height(11.dp))
-        FieldLabel("Sets within a series")
+        if (eras > 1) {
+            FieldLabel("Series")
+            Box(Modifier.height(6.dp))
+            SegmentedControl(
+                options = CatalogOrder.entries,
+                selected = browser.seriesOrder,
+                onSelect = { browser.seriesOrder = it },
+                label = { it.label },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Box(Modifier.height(11.dp))
+        }
+        FieldLabel(if (eras > 1) "Sets within a series" else "Sets")
         Box(Modifier.height(6.dp))
         SegmentedControl(
             options = CatalogOrder.entries,
@@ -334,14 +382,27 @@ private fun SortPanel(browser: CatalogBrowser, modifier: Modifier = Modifier) {
 private fun LazyListScope.setMatches(sets: List<RemoteSet>, onOpenSet: (RemoteSet) -> Unit) {
     if (sets.isEmpty()) return
     item { SectionHeader("Sets · ${sets.size}", Modifier.padding(top = 4.dp)) }
-    tileRows(items = sets, keyPrefix = "match", key = { it.id }) { set ->
-        SetTile(set = set, onClick = { onOpenSet(set) }, modifier = Modifier.weight(1f))
+    // Split by game on the same rule the card results use, and for the same reason: at
+    // the top of the tab "promo" matches both a printed promo set and Promos-A, and two
+    // logo tiles side by side do not say which game either belongs to.
+    val byGame = sets.groupBy { it.game }
+    byGame.entries.sortedBy { it.key.ordinal }.forEach { (game, rows) ->
+        if (byGame.size > 1) {
+            item(key = "match-head-${game.name}") {
+                SectionHeader("${game.label} · ${rows.size}", Modifier.padding(top = 2.dp))
+            }
+        }
+        tileRows(items = rows, keyPrefix = "match-${game.name}", key = { it.id }) { set ->
+            SetTile(set = set, onClick = { onOpenSet(set) }, modifier = Modifier.weight(1f))
+        }
     }
 }
 
 @Suppress("LongParameterList")
 private fun LazyListScope.cardResults(
     query: String,
+    /** The game being browsed, if any. Narrows the search to it and names it in the header. */
+    game: TcgGame?,
     localResults: List<CardBrief>,
     ownedCounts: Map<PrintingId, Int>,
     lookup: CardLookup,
@@ -372,19 +433,6 @@ private fun LazyListScope.cardResults(
         return
     }
 
-    item {
-        SectionHeader(
-            title = when {
-                lookup.searching -> "Searching the full catalog…"
-                lookup.results.isEmpty() -> "Full catalog"
-                else -> "Full catalog · ${lookup.results.size} found"
-            },
-            modifier = Modifier.padding(top = 6.dp),
-        )
-    }
-
-    lookup.error?.let { message -> item { Notice(message, error = true) } }
-
     // Cards already in the local catalog are filtered out rather than shown greyed: they
     // are listed above, and a card that appears twice in one screen reads as a bug.
     // Matched on name and printed number rather than on id, because ids only line up for
@@ -392,15 +440,43 @@ private fun LazyListScope.cardResults(
     val known = localCatalog.map { "${it.name.lowercase()}|${it.collectorNumber.lowercase()}" }.toSet()
     val remote = lookup.results
         .filterNot { "${it.name.lowercase()}|${it.collectorNumber.lowercase()}" in known }
+        // The name endpoint answers across the whole catalog, so narrowing to the browsed
+        // game happens here. Upstream cannot be asked the narrower question.
+        .filter { game == null || it.game == game }
 
-    tileRows(items = remote, keyPrefix = "remote", key = { it.id }) { hit ->
-        CatalogCardTile(
-            hit = hit,
-            caption = "${hit.setName} · ${hit.collectorNumber}",
-            enabled = !importing,
-            onClick = { onAddRemoteCard(hit) },
-            modifier = Modifier.weight(1f),
+    item {
+        SectionHeader(
+            title = when {
+                lookup.searching -> "Searching ${game?.label ?: "the full catalog"}…"
+                remote.isEmpty() -> game?.label ?: "Full catalog"
+                else -> "${game?.label ?: "Full catalog"} · ${remote.size} found"
+            },
+            modifier = Modifier.padding(top = 6.dp),
         )
+    }
+
+    lookup.error?.let { message -> item { Notice(message, error = true) } }
+
+    // One block per game, headed only when there is more than one block to tell apart.
+    // Inside a game there never is; at the top of the tab a search for "Pikachu" really
+    // does span both Pokémon catalogs, and an unlabelled run of tiles from each is the
+    // same mixing the browse below just stopped doing.
+    val byGame = remote.groupBy { it.game }
+    byGame.entries.sortedBy { it.key.ordinal }.forEach { (hitGame, rows) ->
+        if (byGame.size > 1) {
+            item(key = "remote-head-${hitGame.name}") {
+                SectionHeader("${hitGame.label} · ${rows.size}", Modifier.padding(top = 2.dp))
+            }
+        }
+        tileRows(items = rows, keyPrefix = "remote-${hitGame.name}", key = { it.id }) { hit ->
+            CatalogCardTile(
+                hit = hit,
+                caption = "${hit.setName} · ${hit.collectorNumber}",
+                enabled = !importing,
+                onClick = { onAddRemoteCard(hit) },
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 
     if (!lookup.searching && remote.isEmpty() && lookup.error == null && localResults.isEmpty()) {

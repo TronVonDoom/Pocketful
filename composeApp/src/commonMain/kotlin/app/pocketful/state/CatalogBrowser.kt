@@ -13,6 +13,9 @@ import app.pocketful.data.RemoteVariants
 import app.pocketful.data.SearchHit
 import app.pocketful.data.SetPocket
 import app.pocketful.data.TcgDex
+import app.pocketful.data.game
+import app.pocketful.data.gameOfSeries
+import app.pocketful.domain.TcgGame
 
 /**
  * The four ways a list of eras or of sets can be put in order.
@@ -40,6 +43,8 @@ data class SeriesGroup(
     val series: RemoteSeries,
     val sets: List<RemoteSet>,
     val releaseDate: String?,
+    /** The game this era belongs to. Read from the era, not from the sets under it. */
+    val game: TcgGame,
 ) {
     /** The span an era covers, for the line under its name. */
     val years: String?
@@ -79,6 +84,16 @@ class CatalogBrowser(private val api: TcgDex) {
     var sets by mutableStateOf<List<RemoteSet>>(emptyList())
         private set
 
+    /**
+     * The same sets keyed by id, so a card already in the collection can be asked which
+     * game it came from without a linear scan per row.
+     *
+     * Snapshot-backed like the list it mirrors. It is only ever written beside [sets], but
+     * a plain field here would make that adjacency load-bearing -- a screen reading this
+     * one would redraw on the other's write and there would be nothing saying why.
+     */
+    private var setsById by mutableStateOf<Map<String, RemoteSet>>(emptyMap())
+
     /** True while the index is being fetched for the first time. */
     var loading by mutableStateOf(false)
         private set
@@ -106,6 +121,33 @@ class CatalogBrowser(private val api: TcgDex) {
     /** Whether there is anything to draw yet. */
     val isEmpty: Boolean get() = groups.isEmpty()
 
+    /**
+     * How much of the catalog is filed under one game, or null before the index lands.
+     *
+     * Offered so a game tile can say what is behind it -- "203 sets · 20 eras" is the
+     * difference between a button and a promise -- and so the two Pokémon entries, which
+     * otherwise share a publisher and half a name, are told apart on the one figure that
+     * actually differs between them.
+     */
+    fun sizeOf(game: TcgGame): CatalogSize? {
+        if (groups.isEmpty()) return null
+        val eras = groups.filter { it.game == game }
+        if (eras.isEmpty()) return null
+        return CatalogSize(sets = eras.sumOf { it.sets.size }, series = eras.size)
+    }
+
+    /** Every set in one game, for matching a typed set name without leaving it. */
+    fun setsOf(game: TcgGame): List<RemoteSet> = sets.filter { it.game == game }
+
+    /**
+     * The game a set belongs to, by the id the collection stores as a printing's set code.
+     *
+     * Cards already in the collection carry no game of their own -- they are keyed to a
+     * set, and the set is what knows. A set the index has never heard of is a card typed
+     * in by hand or imported from elsewhere, and those belong to the printed game.
+     */
+    fun gameOfSet(setCode: String): TcgGame = gameOfSeries(setsById[setCode]?.serie?.id)
+
     /** Fetched once. The whole index is small and static enough to hold for the session. */
     suspend fun load() {
         if (groups.isNotEmpty()) return
@@ -118,6 +160,7 @@ class CatalogBrowser(private val api: TcgDex) {
                 } else {
                     groups = index.toGroups()
                     sets = index.sets
+                    setsById = index.sets.associateBy { it.id }
                 }
             }
             .onFailure {
@@ -127,15 +170,21 @@ class CatalogBrowser(private val api: TcgDex) {
     }
 
     /**
-     * The catalog in the order the screen should draw it.
+     * One game's catalog, in the order the screen should draw it.
+     *
+     * Filtered before it is sorted rather than after, because the two orderings are over
+     * the list that is drawn: an era's date is the earliest set in it, and the count in
+     * its caption is the number of sets under it, and neither means anything if half the
+     * list is about to be dropped.
      *
      * Returns a new list rather than mutating in place so the caller can remember it
-     * against the three things it depends on; re-sorting 218 sets on every frame of a
+     * against the things it depends on; re-sorting two hundred sets on every frame of a
      * scroll would otherwise be the cost of having a sort control at all.
      */
-    fun arrange(): List<SeriesGroup> {
+    fun arrange(game: TcgGame): List<SeriesGroup> {
         val within = setOrdering(setOrder)
         return groups
+            .filter { it.game == game }
             .map { group -> group.copy(sets = group.sets.sortedWith(within)) }
             .sortedWith(seriesOrdering(seriesOrder))
     }
@@ -204,6 +253,20 @@ class CatalogBrowser(private val api: TcgDex) {
         runCatching { api.variantsInSet(setId) }.getOrDefault(emptyMap())
 }
 
+/** What one game's slice of the catalog amounts to, for the tile that opens it. */
+data class CatalogSize(val sets: Int, val series: Int) {
+    /**
+     * "203 sets · 20 eras", counted in words rather than in numbers alone.
+     *
+     * Pluralised here rather than at the tile because Pokémon TCG Pocket is genuinely one
+     * era, and "1 eras" on the tile beside it is the kind of seam that makes a screen look
+     * generated rather than written.
+     */
+    val caption: String
+        get() = "$sets ${if (sets == 1) "set" else "sets"} · " +
+            "$series ${if (series == 1) "era" else "eras"}"
+}
+
 // ------------------------------------------------------------------- grouping
 
 /** The id sets land under when the catalog does not say which era they belong to. */
@@ -225,6 +288,7 @@ private fun CatalogIndex.toGroups(): List<SeriesGroup> {
                 series = named.copy(logo = named.logo ?: members.earliestLogo()),
                 sets = members,
                 releaseDate = members.mapNotNull { it.releaseDate }.minOrNull(),
+                game = named.game,
             )
         }
 }

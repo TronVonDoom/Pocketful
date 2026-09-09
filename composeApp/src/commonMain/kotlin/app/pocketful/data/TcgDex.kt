@@ -1,5 +1,6 @@
 package app.pocketful.data
 
+import app.pocketful.domain.TcgGame
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -75,14 +76,20 @@ class TcgDex(
         val sets = runCatching { sets() }.getOrDefault(emptyMap())
         return rows.map { row ->
             val setId = row.id.substringBeforeLast('-', missingDelimiterValue = "")
+            val set = sets[setId]
             SearchHit(
                 id = row.id,
                 name = row.name,
                 number = row.localId ?: row.id.substringAfterLast('-'),
                 setId = setId,
-                setName = sets[setId]?.name ?: setId,
-                setTotal = sets[setId]?.cardCount?.official?.toString(),
+                setName = set?.name ?: setId,
+                setTotal = set?.cardCount?.printed?.toString(),
                 artStem = row.image,
+                // The name endpoint answers across the whole catalog and cannot be asked
+                // for one game, so a search for "pikachu" comes back holding both. Which
+                // game each hit belongs to is settled here, from the index, rather than
+                // left to the screen to guess at from a set name.
+                game = gameOfSeries(set?.serie?.id),
             )
         }
     }
@@ -97,7 +104,8 @@ class TcgDex(
     /** Every card in one set, as picker rows. One request, however big the set. */
     suspend fun cardsInSet(setId: String): List<SearchHit> {
         val detail = setDetail(setId) ?: return emptyList()
-        val total = detail.cardCount?.official?.toString()
+        val total = detail.cardCount?.printed?.toString()
+        val game = detail.game
         return detail.cards.map { row ->
             SearchHit(
                 id = row.id,
@@ -107,6 +115,7 @@ class TcgDex(
                 setName = detail.name,
                 setTotal = total,
                 artStem = row.image,
+                game = game,
             )
         }
     }
@@ -166,8 +175,18 @@ class TcgDex(
                 .toMap()
         }.getOrDefault(emptyMap())
 
-    /** The set index, fetched at most once and then held for the life of the process. */
+    /**
+     * The set index, fetched at most once and then held for the life of the process.
+     *
+     * Asks for the whole catalog index rather than the bare `/sets` list, because that
+     * one omits the era each set belongs to -- and the era is the only thing separating a
+     * printed set from a Pokémon TCG Pocket one. [catalogIndex] fills this field itself
+     * when it succeeds, so the common path is one request either way; the bare list is
+     * kept underneath it as the answer for a catalog that would not give up the rest.
+     */
     suspend fun sets(): Map<String, RemoteSet> {
+        setIndex?.let { return it }
+        runCatching { catalogIndex() }
         setIndex?.let { return it }
         val fetched: List<RemoteSet> = client.get("$BASE/$language/sets").body()
         return fetched.associateBy { it.id }.also { setIndex = it }
@@ -335,6 +354,14 @@ data class SearchHit(
     val setName: String,
     val setTotal: String?,
     val artStem: String?,
+    /**
+     * Which game the card is from, resolved where the set was.
+     *
+     * Carried on the row rather than looked up again by whoever draws it: a hit outlives
+     * the index lookup that produced it, and a screen re-deriving this from a set name
+     * would be a second answer to a question already settled.
+     */
+    val game: TcgGame = TcgGame.POKEMON,
 ) {
     val collectorNumber: String get() = setTotal?.let { "$number/$it" } ?: number
 }
@@ -368,7 +395,7 @@ data class RemoteSet(
     val serie: RemoteSeriesRef? = null,
 ) {
     /** What the set index can say about size before the full document is fetched. */
-    val officialCount: Int? get() = cardCount?.official ?: cardCount?.total
+    val officialCount: Int? get() = cardCount?.printed
 
     /** The four digits a tile has room for. */
     val releaseYear: String? get() = releaseDate?.take(4)?.takeIf { it.length == 4 }
@@ -440,7 +467,17 @@ data class RemoteSetDetail(
 data class RemoteSeriesRef(val id: String, val name: String)
 
 @Serializable
-data class RemoteCardCount(val total: Int? = null, val official: Int? = null)
+data class RemoteCardCount(val total: Int? = null, val official: Int? = null) {
+    /**
+     * How many cards the set is said to hold, or null if the catalog does not know.
+     *
+     * A zero is the catalog declining to answer rather than a set with no cards in it --
+     * TCGdex files every Pokémon TCG Pocket promo set that way, and reading it literally
+     * put "0 cards" on the tile and "009/0" under a Pikachu. Falls through to the full
+     * count, which includes secret rares and is the better of two imperfect answers.
+     */
+    val printed: Int? get() = official?.takeIf { it > 0 } ?: total?.takeIf { it > 0 }
+}
 
 @Serializable
 data class RemoteSetRef(

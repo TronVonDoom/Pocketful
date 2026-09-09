@@ -26,10 +26,14 @@ toploaders on a shelf. So that is what it models.
 - **Real prices.** Every card is matched against [TCGdex](https://tcgdex.dev) on launch and
   carries the TCGplayer market quote for its finish. Cards that cannot be matched exactly
   are left exactly as they were rather than being guessed at.
-- **The whole catalog, browsable.** 218 sets across every era, sorted four ways, with a
+- **The whole catalog, browsable.** Every set across every era, sorted four ways, with a
   checklist per set and two ways to turn one into a binder: a set binder, which opens one
   pocket per card in the printing that card actually exists in, or a master set, which
   opens a pocket for every *variation* of every card — holo and reverse holo included.
+- **One game at a time.** The printed Pokémon TCG (203 sets, 20 eras) and Pokémon TCG
+  Pocket (15 sets) are browsed apart, because they are two games rather than two eras of
+  one — a TCG Pocket card cannot be sleeved, sold, or priced. The upstream catalog files
+  them together; the app does not.
 - **A trade table.** Flag cards as available, and see what is on offer against what you
   are still chasing.
 
@@ -144,6 +148,11 @@ into `catalog/` for offline work.
 Prices are whatever the catalog last quoted. Only USD, only TCGplayer: the same payload
 carries Cardmarket figures in euros, and quietly filing those under a `$` would be worse
 than showing nothing.
+
+TCGdex also serves Pokémon TCG Pocket out of that one index, filed as one more era beside
+Base and Scarlet & Violet. `data/CatalogGames.kt` is the seam that splits it back out,
+keyed on the `tcgp` series id — the one upstream field that actually tells them apart.
+Its cards carry no price at all, which is right rather than missing: nothing sells them.
 
 ## Status
 

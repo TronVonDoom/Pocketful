@@ -13,12 +13,13 @@ import app.pocketful.domain.TcgGame
 /**
  * A mark for each game, so a tile is recognised before it is read.
  *
- * These are *not* the publishers' logos, and the difference is deliberate. Shipping five
+ * These are *not* the publishers' logos, and the difference is deliberate. Shipping six
  * trademarked wordmarks into the binary is a licensing question rather than a layout one,
  * and the app has no right to any of them. What a grid actually needs is not the official
- * logo but a shape per game that is distinct from the other four at a glance -- so each
+ * logo but a shape per game that is distinct from the other five at a glance -- so each
  * of these is an original emblem drawn from what the game is *about*: the ball you throw,
- * the five-colour wheel, the pyramid, the hat, the drop of ink.
+ * the handset you open packs on, the five-colour wheel, the pyramid, the hat, the drop of
+ * ink.
  *
  * Drawn in the same language as [AppIcons] -- a 24x24 viewport, a 1.9 stroke, round caps
  * -- because they sit next to those icons on the same screens, and a set of marks in a
@@ -38,6 +39,27 @@ object GameMarks {
             moveTo(15.4f, 12f)
             horizontalLineTo(20.4f)
             circle(12f, 12f, 2.8f)
+        }
+    }
+
+    /**
+     * The handheld: a phone, with a card held on its screen.
+     *
+     * Deliberately not a second ball. Pokémon TCG Pocket sits next to the printed game in
+     * the same grid, and the whole point of listing them apart is that one is cardboard
+     * and the other is not -- two variations on a Pokéball would say the opposite at the
+     * exact glance the mark exists to serve. So the emblem is the device, and the card is
+     * inside it rather than in your hand.
+     */
+    val Handheld: ImageVector by lazy {
+        markIcon("mark-handheld", width = 1.8f) {
+            roundedRect(left = 6.6f, top = 2.5f, right = 17.4f, bottom = 21.5f, radius = 2.3f)
+            // The earpiece, which is the line that stops the outer shape reading as a
+            // plain card standing on end.
+            moveTo(10.6f, 5.4f)
+            horizontalLineTo(13.4f)
+            // The card on the screen, in the 5:7 the hobby actually prints at.
+            roundedRect(left = 9.1f, top = 7.6f, right = 14.9f, bottom = 15.7f, radius = 1.1f)
         }
     }
 
@@ -119,16 +141,37 @@ object GameMarks {
  *
  * A `when` rather than a property on [TcgGame] for the same reason its accent colour is:
  * this is a fact about how this app draws the game, not about the game. Exhaustive on
- * purpose -- a sixth game should be a compile error here, not a blank tile at runtime.
+ * purpose -- a seventh game should be a compile error here, not a blank tile at runtime.
  */
 val TcgGame.mark: ImageVector
     get() = when (this) {
         TcgGame.POKEMON -> GameMarks.Pokeball
+        TcgGame.POKEMON_POCKET -> GameMarks.Handheld
         TcgGame.MAGIC -> GameMarks.Pentacle
         TcgGame.YUGIOH -> GameMarks.Pyramid
         TcgGame.ONE_PIECE -> GameMarks.StrawHat
         TcgGame.LORCANA -> GameMarks.InkDrop
     }
+
+/** Appends a rounded rectangle as its own subpath, corners drawn as quarter arcs. */
+private fun PathBuilder.roundedRect(
+    left: Float,
+    top: Float,
+    right: Float,
+    bottom: Float,
+    radius: Float,
+) {
+    moveTo(left + radius, top)
+    horizontalLineTo(right - radius)
+    arcTo(radius, radius, 0f, false, true, right, top + radius)
+    verticalLineTo(bottom - radius)
+    arcTo(radius, radius, 0f, false, true, right - radius, bottom)
+    horizontalLineTo(left + radius)
+    arcTo(radius, radius, 0f, false, true, left, bottom - radius)
+    verticalLineTo(top + radius)
+    arcTo(radius, radius, 0f, false, true, left + radius, top)
+    close()
+}
 
 /** Appends a full circle as its own subpath, built from two half arcs. */
 private fun PathBuilder.circle(cx: Float, cy: Float, r: Float) {

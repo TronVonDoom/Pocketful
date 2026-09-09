@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import app.pocketful.data.RemoteSet
 import app.pocketful.data.SearchHit
+import app.pocketful.data.game
 import app.pocketful.domain.Binder
 import app.pocketful.domain.BinderLayout
 import app.pocketful.domain.CollectionSnapshot
@@ -357,6 +358,12 @@ fun SetScreen(
  * button waits on it, so the caption says what is happening rather than leaving someone
  * wondering whether the tap registered.
  *
+ * A master set is only offered where a card can exist in more than one press run, which
+ * is to say only for a printed game. Every card in Pokémon TCG Pocket has exactly one, so
+ * a "master set" there would build the checklist a second time under a grander name, and
+ * a button whose two options produce the same binder is a button that teaches people not
+ * to trust either.
+ *
  * Both stay offered after a binder exists, which is a reversal: this used to collapse to
  * one button on the grounds that offering "make a binder" beside "open the binder you
  * already made" is how someone ends up with three binders for one set. That still holds
@@ -383,6 +390,7 @@ private fun SetActions(
     val count = cards.size.takeIf { it > 0 } ?: set.officialCount ?: 0
     val sheets = sheetsToHold(count.coerceAtLeast(1), layout)
     val ready = !loading && building == null && cards.isNotEmpty()
+    val printed = set.game.printed
 
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (existingBinder != null) {
@@ -424,15 +432,18 @@ private fun SetActions(
                 )
             }
 
-            AppOutlineButton(
-                label = masterLabel,
-                onClick = onCreateMasterSet,
-                modifier = Modifier.weight(1f),
-                enabled = ready,
-                icon = AppIcons.Sparkle,
-            )
+            if (printed) {
+                AppOutlineButton(
+                    label = masterLabel,
+                    onClick = onCreateMasterSet,
+                    modifier = Modifier.weight(1f),
+                    enabled = ready,
+                    icon = AppIcons.Sparkle,
+                )
+            }
         }
 
+        val pages = "$sheets ${if (sheets == 1) "sheet" else "sheets"} of ${layout.displayName} pages"
         Text(
             text = when {
                 failure != null -> failure
@@ -440,10 +451,16 @@ private fun SetActions(
                 building != null ->
                     "Reading which variations each of the $count cards was printed in. " +
                         "This takes a few seconds the first time a set is asked."
+                // A digital set has one press run per card and no market to quote, so the
+                // half of this sentence about holos and prices would be describing a
+                // binder the button above cannot build.
+                !printed ->
+                    "A set binder is $pages -- one pocket per card, every one marked " +
+                        "wanted. These cards are digital, so nothing prices them and the " +
+                        "binder is a checklist rather than a portfolio."
                 else ->
-                    "A set binder is $sheets ${if (sheets == 1) "sheet" else "sheets"} of " +
-                        "${layout.displayName} pages -- one pocket per card, in the variation " +
-                        "it was printed in, every one marked wanted. A master set opens a " +
+                    "A set binder is $pages -- one pocket per card, in the variation it " +
+                        "was printed in, every one marked wanted. A master set opens a " +
                         "pocket for every variation instead: normal, holo and reverse, each " +
                         "priced on its own."
             },

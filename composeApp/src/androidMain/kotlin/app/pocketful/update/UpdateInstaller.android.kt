@@ -3,7 +3,6 @@ package app.pocketful.update
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.provider.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -146,13 +145,17 @@ private class AndroidUpdateInstaller(private val context: Context) : UpdateInsta
         context.startActivity(intent)
     }
 
-    /** Before API 26 the manifest permission was the whole story. After it, it is not. */
-    private fun canInstall(): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
-            context.packageManager.canRequestPackageInstalls()
+    /**
+     * Whether the user has granted this app the right to install packages.
+     *
+     * Since API 26 the manifest permission is only half of it: the other half is a
+     * per-app toggle in system settings that only the user can flip. minSdk is 26, so
+     * there is no older path left to guard -- the version checks that used to stand here
+     * could never be false.
+     */
+    private fun canInstall(): Boolean = context.packageManager.canRequestPackageInstalls()
 
     private fun requestInstallPermission() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         runCatching {
             context.startActivity(
                 Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)

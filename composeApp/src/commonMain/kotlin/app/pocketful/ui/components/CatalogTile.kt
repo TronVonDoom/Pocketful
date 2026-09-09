@@ -52,12 +52,12 @@ import coil3.compose.AsyncImage
  * A game, as the front door to its catalog.
  *
  * The plate is drawn rather than fetched. The set and series wordmarks come off TCGdex,
- * but there is no comparable source for the games themselves, and shipping five publisher
+ * but there is no comparable source for the games themselves, and shipping publisher
  * logos into the binary is a licensing question rather than a layout one -- so the tile
  * carries an emblem of the app's own from [GameMarks] instead, above the game's name.
  *
- * The mark is what makes the grid scannable. Five tinted plates of text are five plates
- * of text: at arm's length the eye gets colour and word-shape and has to read to be sure,
+ * The mark is what makes the grid scannable. Six tinted plates of text are six plates of
+ * text: at arm's length the eye gets colour and word-shape and has to read to be sure,
  * and Magic and Lorcana sat in the same warm-to-cool range as each other. A shape reads
  * before a word does, which is the entire reason a game has a logo in the first place.
  */
@@ -319,11 +319,15 @@ private fun RemoteSet.tileCaption(): String = listOfNotNull(
  *
  * Kept here rather than on [TcgGame] because it is a fact about how this app draws the
  * game, not about the game -- and written as a `when` rather than a map so that adding a
- * sixth game is a compile error here instead of a grey tile at runtime.
+ * seventh game is a compile error here instead of a grey tile at runtime.
  */
 private val TcgGame.accent: Color
     get() = when (this) {
         TcgGame.POKEMON -> Color(0xFFF2C14E)
+        // Held well clear of the printed game's gold rather than made a shade of it. The
+        // two sit side by side in the grid, and a tint of the same hue would read as one
+        // game drawn twice -- which is the confusion the split exists to end.
+        TcgGame.POKEMON_POCKET -> Color(0xFF7FD1A6)
         TcgGame.MAGIC -> Color(0xFFC08A5A)
         TcgGame.YUGIOH -> Color(0xFF9B7BE8)
         TcgGame.ONE_PIECE -> Color(0xFFE06A6E)

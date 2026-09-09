@@ -226,7 +226,7 @@ object CardImport {
             setCode = card.set?.id ?: card.id.substringBeforeLast('-', ""),
             setName = card.set?.name ?: "Unknown set",
             number = card.localId ?: card.id.substringAfterLast('-'),
-            setTotal = card.set?.cardCount?.official?.toString(),
+            setTotal = card.set?.cardCount?.printed?.toString(),
             rarity = card.rarity,
             illustrator = card.illustrator,
             releaseYear = null,
