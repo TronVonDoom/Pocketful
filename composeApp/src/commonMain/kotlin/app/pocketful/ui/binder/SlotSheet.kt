@@ -63,7 +63,6 @@ import app.pocketful.ui.components.CardListRow
 import app.pocketful.ui.components.CatalogCardRow
 import app.pocketful.ui.components.ChoiceChip
 import app.pocketful.ui.components.DetailRow
-import app.pocketful.ui.components.EmptyState
 import app.pocketful.ui.components.FieldLabel
 import app.pocketful.ui.components.Hairline
 import app.pocketful.ui.components.SearchField
@@ -552,22 +551,36 @@ private fun ColumnScope.BrowseStep(
             }
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SectionHeader(
-                when {
-                    query.isBlank() -> "Catalog · ${catalog.size} cards"
-                    results.size == 1 -> "1 match"
-                    else -> "${results.size} matches"
-                },
-            )
-            if (results.isEmpty()) {
-                EmptyState(
-                    icon = AppIcons.Search,
-                    title = "No matches",
-                    message = "Nothing in the catalog matches \"$query\". You can add it by hand.",
-                    action = { AppButton("Add this card", onCreateCard, icon = AppIcons.Plus) },
+        // Local matches, and *only* when there are some.
+        //
+        // A query that the local catalog cannot answer used to render a full-height "No
+        // matches -- you can add it by hand" here, with a primary button, between the
+        // search box and the online results that were about to arrive with the answer.
+        // On a new install the local catalog is empty by definition, so that was every
+        // first search anyone ever ran: the app met its own core gesture -- filling a
+        // pocket -- by announcing the card did not exist and offering a form to type it
+        // in, while the section that had it sat below the fold.
+        //
+        // So a fruitless local search now says nothing at all and lets the online section
+        // speak. The by-hand escape hatch has not gone anywhere; it is at the foot of this
+        // sheet, where it belongs once both catalogs have actually been asked.
+        if (query.isBlank() || results.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionHeader(
+                    when {
+                        query.isBlank() -> "Catalog · ${catalog.size} cards"
+                        results.size == 1 -> "1 match"
+                        else -> "${results.size} matches"
+                    },
                 )
-            } else {
+                if (query.isBlank() && catalog.isEmpty()) {
+                    Text(
+                        text = "Cards you file turn up here. Search to pull one out of the " +
+                            "online catalog.",
+                        color = Ink.TextTertiary,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 results.forEach { brief ->
                     val ownedCount = ownedCounts[brief.variantId] ?: 0
                     CardListRow(
@@ -630,9 +643,17 @@ private fun ColumnScope.BrowseStep(
                         )
                     }
 
+                // The one place a search is told it found nothing, so it has to carry
+                // the whole answer -- "either" would be dangling now that a fruitless
+                // local search says nothing above.
                 if (!lookup.searching && lookup.results.isEmpty() && lookup.error == null) {
                     Text(
-                        text = "Nothing in the online catalog matches that either.",
+                        text = if (results.isEmpty()) {
+                            "No card matches \"$query\", here or online. If you are holding " +
+                                "one anyway, add it by hand below."
+                        } else {
+                            "Nothing more in the online catalog."
+                        },
                         color = Ink.TextTertiary,
                         style = MaterialTheme.typography.bodySmall,
                     )

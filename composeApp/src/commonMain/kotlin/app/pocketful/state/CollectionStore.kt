@@ -36,6 +36,7 @@ import app.pocketful.domain.SlotContent
 import app.pocketful.domain.Supertype
 import app.pocketful.domain.Variant
 import app.pocketful.domain.VariantId
+import kotlin.random.Random
 
 /**
  * Display preferences. Every one of these changes something visible; nothing here is a
@@ -168,7 +169,7 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
         sheetCount: Int,
         spineColor: Long,
     ): BinderId {
-        val id = BinderId(uniqueId("binder") { candidate -> snapshot.binders.any { it.id.value == candidate } })
+        val id = BinderId(mintId("binder") { candidate -> snapshot.binders.any { it.id.value == candidate } })
         val binder = Binder(
             id = id,
             name = name.trim().ifBlank { "Untitled binder" },
@@ -212,7 +213,7 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
         val safeSheets = sheetCount.coerceAtLeast(1)
         val (withCatalog, variantIds) = CardImport.stubAll(snapshot, pockets)
 
-        val id = BinderId(uniqueId("binder") { candidate -> snapshot.binders.any { it.id.value == candidate } })
+        val id = BinderId(mintId("binder") { candidate -> snapshot.binders.any { it.id.value == candidate } })
         val capacity = layout.capacity(safeSheets)
         val binder = Binder(
             id = id,
@@ -293,7 +294,7 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
         color: Long,
     ): ContainerId {
         val id = ContainerId(
-            uniqueId("container") { candidate -> snapshot.containers.any { it.id.value == candidate } },
+            mintId("container") { candidate -> snapshot.containers.any { it.id.value == candidate } },
         )
         val container = Container(
             id = id,
@@ -390,7 +391,7 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
         grade: Grade? = null,
         notes: String? = null,
     ): CopyId {
-        val copyId = CopyId(uniqueId("copy") { it in snapshot.copies.keys.map(CopyId::value) })
+        val copyId = CopyId(mintId("copy") { it in snapshot.copies.keys.map(CopyId::value) })
         val copy = Copy(
             id = copyId,
             variantId = variantId,
@@ -424,7 +425,7 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
         notes: String? = null,
         container: ContainerId? = null,
     ): CopyId {
-        val copyId = CopyId(uniqueId("copy") { it in snapshot.copies.keys.map(CopyId::value) })
+        val copyId = CopyId(mintId("copy") { it in snapshot.copies.keys.map(CopyId::value) })
         val copy = Copy(
             id = copyId,
             variantId = variantId,
@@ -488,7 +489,7 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
 
         for (ordinal in ordinals.distinct().sorted()) {
             val slot = slots.getOrNull(ordinal) as? SlotContent.Wanted ?: continue
-            val copyId = CopyId(uniqueId("copy") { it in taken })
+            val copyId = CopyId(mintId("copy") { it in taken })
             taken += copyId.value
             copies[copyId] = Copy(
                 id = copyId,
@@ -783,11 +784,61 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
 
     // ---------------------------------------------------------------- helpers
 
+    /**
+     * A fresh id for a binder, box or copy -- something this device is inventing rather
+     * than naming.
+     *
+     * The random tail is the whole point, and it is not about collisions within one
+     * collection: a counter handled those fine. It is about what it *means* when the same
+     * id turns up in two collections at once.
+     *
+     * Numbered from one, every device independently mints `copy`, `copy-2`, `binder` --
+     * so the first card anyone ever adds is called `copy` on every phone on earth. Merging
+     * two collections then finds an id in common on essentially every record while none of
+     * them are the same card, and the only safe thing left to do is renumber everything on
+     * one side, which turns a re-import of your own backup into a second copy of your
+     * entire collection.
+     *
+     * With a random tail, a shared id means what it should: these two records have a
+     * common ancestor, because one collection was exported from the other. A merge can
+     * then keep what matches and renumber only what genuinely clashes. Eight base-36
+     * characters is about 2.8e12 possibilities, which is far more headroom than a person
+     * filing cards on a phone will ever need, and [exists] still settles the rest.
+     *
+     * Ids already in a collection are left exactly as they are. They are opaque strings
+     * and nothing reads them, so an old `copy-2` sitting beside a new `copy-k3f9a2m1`
+     * costs nothing -- and rewriting every id in a live collection, along with the binder
+     * slots, container lists and locations that point at them, would risk a great deal to
+     * buy nothing that is not already bought by minting the next one properly.
+     */
+    private fun mintId(kind: String, exists: (String) -> Boolean): String {
+        while (true) {
+            val candidate = buildString(kind.length + 1 + TOKEN_LENGTH) {
+                append(kind)
+                append('-')
+                repeat(TOKEN_LENGTH) { append(TOKEN_ALPHABET[Random.nextInt(TOKEN_ALPHABET.length)]) }
+            }
+            if (!exists(candidate)) return candidate
+        }
+    }
+
+    /**
+     * An id derived from what the thing *is*, deduplicated by counting.
+     *
+     * The opposite of [mintId] and deliberately so. This names catalog entries, whose ids
+     * are built from set code and card name, and two devices deriving the same id for the
+     * same promo is the correct answer rather than a collision -- it is the same card.
+     */
     private fun uniqueId(base: String, exists: (String) -> Boolean): String {
         if (!exists(base)) return base
         var n = 2
         while (exists("$base-$n")) n++
         return "$base-$n"
+    }
+
+    private companion object {
+        const val TOKEN_LENGTH = 8
+        const val TOKEN_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz"
     }
 }
 

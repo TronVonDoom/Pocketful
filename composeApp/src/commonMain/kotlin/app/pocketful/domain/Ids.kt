@@ -13,7 +13,18 @@ import kotlinx.serialization.Serializable
  *   Copy      the physical object.    condition, grade, what you paid, where it lives
  *
  * Ids are human-legible composites rather than surrogate keys so that two devices can
- * merge collections without a server handing out identifiers.
+ * merge collections without a server handing out identifiers. The levels reach that from
+ * opposite directions, and which direction a given id took is worth knowing before
+ * comparing two of them:
+ *
+ *  - [CardId], [PrintingId] and [VariantId] are *derived*. They are built from what the
+ *    thing is -- `ptcg-base1-004-1sted` -- so two devices that have never met agree on
+ *    them by construction, and an id in common means the same card.
+ *  - [CopyId], [BinderId] and [ContainerId] are *minted*, because nothing about a
+ *    physical card in a physical binder is derivable: two Charizards in identical
+ *    condition are still two cards. They carry a random tail, so an id in common means
+ *    the two records share an ancestor rather than merely a birth order. See
+ *    `CollectionStore.mintId`, which is where that reasoning is written down.
  */
 
 @Serializable

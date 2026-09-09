@@ -174,9 +174,11 @@ nothing else — so a backup without its catalog would restore onto a new phone 
 cards with no names, no prices and no art. Importing replaces what is in the app, and says
 what is in the file before it does.
 
-Still to do: no merge, so importing is a restore rather than a way to combine two devices.
-The locally-minted ids (`copy`, `binder`) are sequences and would collide immediately,
-which is the same thing any future sync would have to solve first.
+Still to do: no merge, so importing is a restore rather than a way to combine two
+devices. The groundwork is in, though — binder, box and copy ids now carry a random tail,
+so an id two collections have in common means they share an ancestor rather than merely a
+birth order, which is what a merge would need to tell a re-imported backup apart from a
+genuinely different card.
 
 ## License
 
