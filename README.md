@@ -156,9 +156,20 @@ Its cards carry no price at all, which is right rather than missing: nothing sel
 
 ## Status
 
-Early. A new install starts empty and the collection lives in memory, so it is lost on
-every cold start — persistence is the next thing, and the one item on this list that
-matters more than any feature. Everything else described above works.
+Early, but no longer forgetful. The collection is written to the device as it changes and
+read back at launch, so it survives cold starts and the process kills Android hands out
+when the app has been in the background a while.
+
+Two files, split by what it costs to lose them. `collection.json` is the binders, boxes
+and cards — the only thing here that cannot be fetched again. `catalog-cache.json` is the
+card catalog and its prices, which is upstream data the app knows how to re-fetch, and
+which is dated so the launch can be a cache check rather than a full re-sync of every card
+in the collection. Writes are atomic, and a file that will not parse is kept under
+`.corrupt` rather than being overwritten with an empty one.
+
+Still to do: no export or import, so a collection lives on exactly one device and there is
+no way to move or back one up by hand. That is the next thing, and it is most of what an
+account system would otherwise be for.
 
 ## License
 

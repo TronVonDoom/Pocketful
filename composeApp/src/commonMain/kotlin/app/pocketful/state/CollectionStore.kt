@@ -77,14 +77,55 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
     // Reconciled on the way in anyway: a snapshot assembled by hand -- anything a future
     // importer or a restored save produces -- sets binder slots but leaves every Copy at
     // its default Unassigned, which would make the whole collection look unfiled.
-    var snapshot by mutableStateOf(initial.reconcileLocations())
-        private set
+    private var snapshotState by mutableStateOf(initial.reconcileLocations())
 
-    var settings by mutableStateOf(AppSettings())
+    var snapshot: CollectionSnapshot
+        get() = snapshotState
+        private set(value) {
+            snapshotState = value
+            revision++
+        }
+
+    private var settingsState by mutableStateOf(AppSettings())
+
+    var settings: AppSettings
+        get() = settingsState
+        private set(value) {
+            settingsState = value
+            revision++
+        }
+
+    /**
+     * How many times anything here has changed.
+     *
+     * Exists so a watcher can tell "something happened" from "nothing happened" without
+     * comparing two collections field by field. [CollectionSnapshot] is a data class, so
+     * observing the snapshot itself would deep-compare every map on it against the
+     * previous one on every edit -- a full scan of the catalog to answer a question a
+     * counter answers exactly. See [app.pocketful.state.AutosaveEffect], the only reader.
+     */
+    var revision by mutableStateOf(0)
         private set
 
     fun updateSettings(transform: (AppSettings) -> AppSettings) {
         settings = transform(settings)
+    }
+
+    /**
+     * Replaces everything with a collection read back off disk.
+     *
+     * Goes through [CollectionSnapshot.reconcileLocations] like any other snapshot
+     * assembled from outside: a save file records binder slots *and* each copy's
+     * location, and while the app keeps those two in step, a file that was hand-edited or
+     * written by an older build might not. The slots win, as they do everywhere else.
+     *
+     * Deliberately not a merge. This runs once, at launch, against a store nothing has
+     * touched yet -- and a "restore" that tried to reconcile against live edits would be
+     * inventing a conflict resolution policy for a case that cannot happen.
+     */
+    fun restore(snapshot: CollectionSnapshot, settings: AppSettings) {
+        this.snapshot = snapshot.reconcileLocations()
+        this.settings = settings
     }
 
     /** Back to a new install: every binder, box and card gone. */

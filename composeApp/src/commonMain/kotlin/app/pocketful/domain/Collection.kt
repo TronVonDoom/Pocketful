@@ -1,5 +1,8 @@
 package app.pocketful.domain
 
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
 /**
  * Collection types: yours, mutable, never touched by a catalog update.
  */
@@ -8,6 +11,7 @@ package app.pocketful.domain
  * One physical card you own. Four copies of the same variant are four [Copy] rows,
  * because they can differ in condition, cost basis, and location.
  */
+@Serializable
 data class Copy(
     val id: CopyId,
     val variantId: VariantId,
@@ -36,6 +40,7 @@ enum class Condition(val label: String, val short: String, val multiplier: Doubl
     DAMAGED("Damaged", "DMG", 0.30),
 }
 
+@Serializable
 data class Grade(
     val company: GradingCompany,
     val score: String,
@@ -50,15 +55,31 @@ enum class GradingCompany { PSA, BGS, CGC, SGC, TAG, ACE }
  * A copy always lives somewhere, and "somewhere" is not always a binder. Modelling this
  * polymorphically is what lets a grading submission be tracked without a parallel system.
  */
+@Serializable
 sealed interface Location {
+    @Serializable
+    @SerialName("unassigned")
     data object Unassigned : Location
+
+    @Serializable
+    @SerialName("binder")
     data class BinderSlot(val binderId: BinderId, val ordinal: Int) : Location
+
+    @Serializable
+    @SerialName("container")
     data class InContainer(val containerId: ContainerId) : Location
+
+    @Serializable
+    @SerialName("grading")
     data class AtGrading(val company: GradingCompany, val submittedDate: String) : Location
+
+    @Serializable
+    @SerialName("lent")
     data class Lent(val toWhom: String, val since: String) : Location
 }
 
 /** Volatile, cached, purgeable. Kept apart so a price refresh never rewrites a copy. */
+@Serializable
 data class PriceSnapshot(
     val variantId: VariantId,
     val market: Money,

@@ -1,5 +1,7 @@
 package app.pocketful.domain
 
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import kotlin.math.roundToInt
 
 /**
@@ -7,6 +9,7 @@ import kotlin.math.roundToInt
  * and ordered (rather than keyed by page/row/col) is what makes re-flowing between
  * layouts a list operation instead of a migration.
  */
+@Serializable
 data class Binder(
     val id: BinderId,
     val name: String,
@@ -84,17 +87,26 @@ data class Binder(
  * Three kinds of "nothing here", not one. The distinction is what turns a binder from a
  * record of what you own into a working want-list.
  */
+@Serializable
 sealed interface SlotContent {
     /** Nothing here, and nothing planned. */
+    @Serializable
+    @SerialName("empty")
     data object Empty : SlotContent
 
     /** A card you own, sitting in this pocket. */
+    @Serializable
+    @SerialName("filled")
     data class Filled(val copyId: CopyId) : SlotContent
 
     /** A card you are hunting. Renders as a ghost and feeds cost-to-complete. */
+    @Serializable
+    @SerialName("wanted")
     data class Wanted(val variantId: VariantId, val targetPrice: Money? = null) : SlotContent
 
     /** Deliberately blank. Reflow moves it but never fills it. */
+    @Serializable
+    @SerialName("spacer")
     data class Spacer(val label: String? = null) : SlotContent
 }
 

@@ -39,9 +39,12 @@ import app.pocketful.domain.brief
 import app.pocketful.domain.variantBriefs
 import app.pocketful.data.CatalogSync
 import app.pocketful.data.RemoteSet
+import app.pocketful.data.rememberSaveStorage
 import app.pocketful.data.SearchHit
+import app.pocketful.state.AutosaveEffect
 import app.pocketful.state.LocalAppSettings
 import app.pocketful.state.rememberCardLookup
+import app.pocketful.state.rememberCollectionSaver
 import app.pocketful.state.rememberCatalogBrowser
 import app.pocketful.state.rememberAppBootstrap
 import app.pocketful.state.rememberCollectionStore
@@ -125,6 +128,7 @@ private sealed interface Editor {
 @Composable
 fun App() {
     val store = rememberCollectionStore()
+    val saver = rememberCollectionSaver(rememberSaveStorage())
     val snapshot = store.snapshot
     val catalog = rememberTcgDex()
     val catalogSync = remember(catalog) { CatalogSync(catalog) }
@@ -355,6 +359,7 @@ fun App() {
     LaunchedEffect(Unit) {
         val result = bootstrap.run(
             store = store,
+            saver = saver,
             catalogSync = catalogSync,
             browser = browser,
             imageLoader = SingletonImageLoader.get(imageContext),
@@ -362,6 +367,12 @@ fun App() {
         )
         if (result != null) store.applyCatalogSync(result)
     }
+
+    // Writes every change back, from the moment there is something on disk worth not
+    // overwriting. Mounted here rather than inside the store because saving is something
+    // done *to* a collection by the app it lives in, and a store that saved itself would
+    // need to know what a file was.
+    AutosaveEffect(store, saver)
 
     PocketfulTheme {
         CompositionLocalProvider(LocalAppSettings provides store.settings) {
@@ -556,6 +567,12 @@ fun App() {
                                     openSet = null
                                     slotTarget = null
                                     store.reset()
+                                    // The saved files as well as the live collection.
+                                    // Autosave would eventually write the empty store
+                                    // over them anyway; deleting them says it now, and
+                                    // drops the cached catalog with it so the next launch
+                                    // starts genuinely fresh rather than merely blank.
+                                    scope.launch { saver.clear() }
                                 },
                             )
                         }

@@ -1,5 +1,7 @@
 package app.pocketful.domain
 
+import kotlinx.serialization.Serializable
+
 /**
  * Storage that is not a binder.
  *
@@ -9,6 +11,7 @@ package app.pocketful.domain
  * So a [Container] holds an ordered list of copies and nothing else, and the two live
  * side by side under Collections rather than one pretending to be the other.
  */
+@Serializable
 data class Container(
     val id: ContainerId,
     val name: String,

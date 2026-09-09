@@ -7,6 +7,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import app.pocketful.data.CardArt
 import app.pocketful.data.CatalogSync
+import app.pocketful.data.nowEpochSeconds
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.request.ImageRequest
@@ -40,6 +41,10 @@ import kotlin.time.TimeSource
  *  - **It never finishes faster than the eye can follow.** [FLOOR] holds the screen up
  *    long enough to read as a launch rather than a flicker, on the warm starts where
  *    every step above returns from cache in fifty milliseconds.
+ *
+ * The first step is the collection itself, off disk, and it is the one step here that is
+ * not a network call and not allowed to be skipped for time. Everything after it is a
+ * refinement of data the app already has.
  */
 class AppBootstrap {
 
@@ -66,6 +71,20 @@ class AppBootstrap {
         private set
 
     /**
+     * Whether the save file was read before anything else ran.
+     *
+     * Watched rather than assumed, because everything downstream of it is conditional on
+     * it: autosave must not start against a store that failed to restore, or the first
+     * edit of the session would write an empty collection over a full one.
+     */
+    var restoredFromDisk by mutableStateOf(false)
+        private set
+
+    /** Whether prices came from the cache rather than the network. Reported, not hidden. */
+    var usedCachedPrices by mutableStateOf(false)
+        private set
+
+    /**
      * Runs the sequence and returns the catalog delta for the caller to apply.
      *
      * The sync result is handed back rather than written from in here for the reason
@@ -74,6 +93,7 @@ class AppBootstrap {
      */
     suspend fun run(
         store: CollectionStore,
+        saver: CollectionSaver,
         catalogSync: CatalogSync,
         browser: CatalogBrowser,
         imageLoader: ImageLoader,
@@ -82,23 +102,46 @@ class AppBootstrap {
         val started = TimeSource.Monotonic.markNow()
         var syncResult: CatalogSync.Result? = null
 
+        // 0. The collection, off disk. Outside the budget below on purpose: that budget
+        //    exists to stop a dead network from holding the launch, and this step does
+        //    not touch the network. Timing it out would mean opening onto an empty app
+        //    that still had a full save file -- the one failure this whole class is
+        //    supposed to prevent.
+        step(RESTORE, 0f, 0.10f) {
+            saver.restoreInto(store)
+        }
+        restoredFromDisk = saver.restored
+
         withTimeoutOrNull(BUDGET) {
             // 1. The catalog's shape. Everything else that reads a set name -- the sync
             //    below, the search tab, every "Base Set · 102 cards" caption -- is served
             //    from the index this fills, so it goes first and the rest come free.
-            step(CATALOG, 0f, 0.30f) {
+            step(CATALOG, 0.10f, 0.30f) {
                 browser.load()
             }
 
             // 2. The collection against that catalog: artwork and real prices for cards
             //    that were, until this ran, coloured rectangles with sample values on them.
-            step(MATCHING, 0.30f, 0.80f) {
-                syncResult = catalogSync.run(store.snapshot) { done, total ->
-                    if (total > 0) {
-                        progress = 0.30f + 0.50f * (done.toFloat() / total)
-                        status = "$MATCHING · $done of $total"
+            //    Skipped outright when the cache is recent enough to still be true. This
+            //    is the step persistence was worth building for: before there was a file
+            //    to date, every cold start re-fetched the whole collection card by card
+            //    because the app had no way to know it had done exactly that a minute
+            //    ago. Prices are the only thing here that goes stale, and they do not
+            //    move fast enough to be worth a round trip per launch.
+            val cachedAt = saver.cachedAtEpochSeconds
+            val cacheAge = cachedAt?.let { nowEpochSeconds() - it }
+            usedCachedPrices = cacheAge != null && cacheAge in 0 until PRICE_TTL
+            if (!usedCachedPrices) {
+                step(MATCHING, 0.30f, 0.80f) {
+                    syncResult = catalogSync.run(store.snapshot, nowEpochSeconds()) { done, total ->
+                        if (total > 0) {
+                            progress = 0.30f + 0.50f * (done.toFloat() / total)
+                            status = "$MATCHING · $done of $total"
+                        }
                     }
                 }
+            } else {
+                progress = 0.80f
             }
 
             // 3. The thumbnails those matches just pointed at. Decoding art is the one
@@ -170,6 +213,10 @@ class AppBootstrap {
 
     /** The one line the loading screen leaves behind about what the launch achieved. */
     private fun describe(result: CatalogSync.Result?): String? = when {
+        // Said out loud rather than passed off as a fetch. A launch that skipped the
+        // network is the good case, and an app that silently reports nothing on its
+        // fastest starts reads as one that quietly did less.
+        usedCachedPrices -> "Prices from your last sync"
         result == null || result.failure != null -> null
         result.pricesUpdated > 0 -> "Repriced ${result.pricesUpdated} cards"
         result.matched > 0 -> "Matched ${result.matched} cards"
@@ -178,6 +225,7 @@ class AppBootstrap {
 
     private companion object {
         const val FIRST_STATUS = "Opening your collection"
+        const val RESTORE = "Opening your collection"
         const val CATALOG = "Reading the set catalog"
         const val MATCHING = "Matching your cards"
         const val ARTWORK = "Fetching artwork"
@@ -188,6 +236,16 @@ class AppBootstrap {
 
         /** The shortest a launch is allowed to look like one. */
         const val FLOOR = 1_100L
+
+        /**
+         * How long a cached price stays good enough to open with.
+         *
+         * Six hours, which is a judgement about card prices rather than about caching:
+         * a TCGplayer market quote does not move enough between breakfast and lunch to
+         * be worth making someone wait for it, and anyone who wants today's number to
+         * the minute has the manual refresh in Settings.
+         */
+        const val PRICE_TTL = 6 * 60 * 60L
 
         const val ART_PREFETCH = 96
         const val ART_BATCH = 8

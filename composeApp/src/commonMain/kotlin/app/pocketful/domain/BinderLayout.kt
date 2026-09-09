@@ -1,5 +1,7 @@
 package app.pocketful.domain
 
+import kotlinx.serialization.Serializable
+
 /**
  * The physical geometry of a binder page.
  *
@@ -12,6 +14,7 @@ package app.pocketful.domain
  * Naming a layout only by its pocket count is not enough -- twelve pockets could be 4x3,
  * 3x4 or 6x2 -- so the shape, not the total, is the identity.
  */
+@Serializable
 data class BinderLayout(
     val cols: Int,
     val rows: Int,

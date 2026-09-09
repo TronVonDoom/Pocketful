@@ -1,5 +1,7 @@
 package app.pocketful.domain
 
+import kotlinx.serialization.Serializable
+
 /**
  * Identity is deliberately split into four levels. Conflating any two of these is the
  * mistake that makes collection apps unusable once a user owns more than one printing
@@ -14,35 +16,41 @@ package app.pocketful.domain
  * merge collections without a server handing out identifiers.
  */
 
+@Serializable
 @JvmInline
 value class CardId(val value: String) {
     override fun toString() = value
 }
 
 /** e.g. `ptcg-base1-004` */
+@Serializable
 @JvmInline
 value class PrintingId(val value: String) {
     override fun toString() = value
 }
 
 /** e.g. `ptcg-base1-004-1sted` */
+@Serializable
 @JvmInline
 value class VariantId(val value: String) {
     override fun toString() = value
 }
 
 /** Local to this collection; a copy is a physical object, so it never syncs upstream. */
+@Serializable
 @JvmInline
 value class CopyId(val value: String) {
     override fun toString() = value
 }
 
+@Serializable
 @JvmInline
 value class BinderId(val value: String) {
     override fun toString() = value
 }
 
 /** Storage that is not a binder: a box, a deck, a case of slabs. */
+@Serializable
 @JvmInline
 value class ContainerId(val value: String) {
     override fun toString() = value
@@ -52,6 +60,7 @@ value class ContainerId(val value: String) {
  * Minor units (cents). Never use floating point for money: summing a 900-card binder
  * accumulates enough error to be visibly wrong.
  */
+@Serializable
 @JvmInline
 value class Money(val cents: Long) : Comparable<Money> {
     operator fun plus(other: Money) = Money(cents + other.cents)

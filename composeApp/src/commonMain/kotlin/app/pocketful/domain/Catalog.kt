@@ -1,10 +1,13 @@
 package app.pocketful.domain
 
+import kotlinx.serialization.Serializable
+
 /**
  * Catalog types: upstream, read-only, replaced wholesale when a catalog update lands.
  * Nothing a user types is ever stored here -- that is what [Copy] is for.
  */
 
+@Serializable
 data class Card(
     val id: CardId,
     val name: String,
@@ -27,6 +30,7 @@ enum class PokemonType {
     METAL, FAIRY, DRAGON, COLORLESS
 }
 
+@Serializable
 data class Attack(
     val name: String,
     val cost: List<PokemonType>,
@@ -34,6 +38,7 @@ data class Attack(
     val text: String?,
 )
 
+@Serializable
 data class Printing(
     val id: PrintingId,
     val cardId: CardId,
@@ -50,6 +55,7 @@ data class Printing(
     val collectorNumber: String get() = setTotal?.let { "$number/$it" } ?: number
 }
 
+@Serializable
 data class Variant(
     val id: VariantId,
     val printingId: PrintingId,
