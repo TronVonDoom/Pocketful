@@ -3,6 +3,7 @@ package app.pocketful.data
 import app.pocketful.domain.TcgGame
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
@@ -65,13 +66,13 @@ class TcgDex(
         val trimmed = query.trim()
         if (trimmed.length < 2) return emptyList()
 
-        val rows: List<RemoteCardBrief> = client
-            .get("$BASE/$language/cards") {
-                parameter("name", trimmed)
-                parameter("pagination:page", 1)
-                parameter("pagination:itemsPerPage", limit)
-            }
-            .body()
+        val response = client.get("$BASE/$language/cards") {
+            parameter("name", trimmed)
+            parameter("pagination:page", 1)
+            parameter("pagination:itemsPerPage", limit)
+        }
+        if (!response.status.isSuccess()) throw CatalogUnavailable(response.status.value)
+        val rows: List<RemoteCardBrief> = response.body()
 
         val sets = runCatching { sets() }.getOrDefault(emptyMap())
         return rows.map { row ->
@@ -188,7 +189,9 @@ class TcgDex(
         setIndex?.let { return it }
         runCatching { catalogIndex() }
         setIndex?.let { return it }
-        val fetched: List<RemoteSet> = client.get("$BASE/$language/sets").body()
+        val setsResponse = client.get("$BASE/$language/sets")
+        if (!setsResponse.status.isSuccess()) throw CatalogUnavailable(setsResponse.status.value)
+        val fetched: List<RemoteSet> = setsResponse.body()
         return fetched.associateBy { it.id }.also { setIndex = it }
     }
 
@@ -214,7 +217,9 @@ class TcgDex(
      */
     suspend fun series(): List<RemoteSeries> {
         seriesIndex?.let { return it }
-        val fetched: List<RemoteSeries> = client.get("$BASE/$language/series").body()
+        val seriesResponse = client.get("$BASE/$language/series")
+        if (!seriesResponse.status.isSuccess()) throw CatalogUnavailable(seriesResponse.status.value)
+        val fetched: List<RemoteSeries> = seriesResponse.body()
         return fetched.also { seriesIndex = it }
     }
 
@@ -331,6 +336,25 @@ class TcgDex(
          * a new field upstream is not a crash on device.
          */
         fun defaultClient(): HttpClient = HttpClient {
+            /*
+             * Bounded waiting, stated rather than inherited.
+             *
+             * Without this the app waits on whatever the platform engine happens to
+             * default to, which differs per engine and is not written down anywhere the
+             * reader of this file can see. The case that matters is not a host that
+             * refuses a connection -- that fails instantly -- but one that accepts it and
+             * then says nothing, which is exactly how an overloaded API behaves and how
+             * a captive portal behaves all the time. Someone watching "Searching the full
+             * catalog..." deserves to be told it failed within a sensible span.
+             *
+             * Kept under AppBootstrap's own launch budget so a cold start is still capped
+             * by the thing that is supposed to cap it.
+             */
+            install(HttpTimeout) {
+                connectTimeoutMillis = 8_000
+                requestTimeoutMillis = 12_000
+                socketTimeoutMillis = 12_000
+            }
             install(ContentNegotiation) {
                 json(
                     Json {
@@ -344,6 +368,18 @@ class TcgDex(
         }
     }
 }
+
+/**
+ * The catalog answered, but not with an answer.
+ *
+ * Exists so a refused request stops being mistaken for an unreadable one. Every endpoint
+ * here decodes straight into a data class, so an unchecked non-2xx meant handing an error
+ * page to the JSON parser and reporting whatever it said about the shape -- which reads
+ * as "this app cannot understand the catalog" when the truth was "the catalog is down".
+ * Those two want opposite reactions from whoever sees them: one is worth waiting out, the
+ * other means the app needs fixing.
+ */
+class CatalogUnavailable(val status: Int) : Exception("The card catalog returned $status.")
 
 /** A row in the search picker: enough to identify a card, not enough to file one. */
 data class SearchHit(
