@@ -9,6 +9,7 @@ import app.pocketful.data.CardImport
 import app.pocketful.data.CatalogIndex
 import app.pocketful.data.RemoteSeries
 import app.pocketful.data.RemoteSet
+import app.pocketful.data.RemoteVariants
 import app.pocketful.data.SearchHit
 import app.pocketful.data.SetPocket
 import app.pocketful.data.TcgDex
@@ -146,11 +147,42 @@ class CatalogBrowser(private val api: TcgDex) {
             .getOrDefault(emptyList())
 
     /**
+     * Warms the press-run cache for a set, without needing the answer.
+     *
+     * Both binder shapes are built out of the same fact -- which press runs each card was
+     * printed in -- and that fact costs a few seconds to gather the first time a set is
+     * asked. Started when the set screen opens, it is usually in hand by the time anyone
+     * has read the header and decided; the buttons wait on it only if it is not.
+     *
+     * Failure is silent here on purpose. This is speculative work for a button nobody may
+     * press, and the button itself reports the problem if it turns out to matter.
+     */
+    suspend fun prefetchVariants(setId: String) {
+        runCatching { api.variantsInSet(setId) }
+    }
+
+    /**
+     * One pocket per card in a set, each in the press run that card actually exists in.
+     *
+     * Never fails. Press runs the catalog would not give up leave a card filed as a
+     * normal, which is what every pocket in this binder used to be regardless -- so the
+     * worst case here is the binder people were already getting.
+     */
+    suspend fun checklistOf(setId: String, cards: List<SearchHit>): List<SetPocket> {
+        variantsError = null
+        return CardImport.checklist(cards, variantsOf(setId))
+    }
+
+    /**
      * Every pocket a master set of one set needs: each card once per press run it exists in.
      *
      * Kept here rather than in the screen because it is the checklist and the press runs
      * behind it having to agree, and because the screen that asks for it is torn down the
      * moment the binder it produces is opened.
+     *
+     * Unlike [checklistOf] this one refuses rather than degrades. A binder called "master
+     * set" that quietly turned out to be one pocket per card is only discovered a hundred
+     * pockets in.
      *
      * Failure is reported separately from [error]. That one is the catalog being
      * unreachable, which the search tab renders as a dead end; this one is a binder that
@@ -159,7 +191,7 @@ class CatalogBrowser(private val api: TcgDex) {
      */
     suspend fun masterSetOf(setId: String, cards: List<SearchHit>): List<SetPocket> {
         variantsError = null
-        val variants = runCatching { api.variantsInSet(setId) }.getOrDefault(emptyMap())
+        val variants = variantsOf(setId)
         if (variants.isEmpty()) {
             variantsError = "Could not read which variations this set was printed in. " +
                 "Check your connection and try again."
@@ -167,6 +199,9 @@ class CatalogBrowser(private val api: TcgDex) {
         }
         return CardImport.masterSet(cards, variants)
     }
+
+    private suspend fun variantsOf(setId: String): Map<String, RemoteVariants> =
+        runCatching { api.variantsInSet(setId) }.getOrDefault(emptyMap())
 }
 
 // ------------------------------------------------------------------- grouping

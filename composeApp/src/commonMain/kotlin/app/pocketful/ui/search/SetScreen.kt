@@ -68,6 +68,9 @@ private enum class SetFilter(val label: String) {
 /** What this collection knows about one card in a set. */
 private enum class CardStanding { Have, Want, Untracked }
 
+/** Which of the two binders a set is being turned into. */
+enum class SetBuild { SetBinder, MasterSet }
+
 /**
  * One set, whole.
  *
@@ -96,8 +99,8 @@ fun SetScreen(
     /** The binder already built from this set, if there is one. */
     existingBinder: Binder?,
     importing: Boolean,
-    /** True while the catalog is being asked which press runs this set was printed in. */
-    buildingMasterSet: Boolean,
+    /** Which binder is being worked out right now, if either. */
+    building: SetBuild?,
     onBack: () -> Unit,
     onCreateBinder: (List<SearchHit>) -> Unit,
     onCreateMasterSet: (List<SearchHit>) -> Unit,
@@ -118,6 +121,10 @@ fun SetScreen(
             compareBy({ it.number.takeWhile(Char::isDigit).toIntOrNull() ?: Int.MAX_VALUE }, { it.number }),
         )
         loading = false
+        // Then, unprompted, the press runs. Both buttons below are built out of them and
+        // neither should be the thing that starts a five-second request -- by the time
+        // anyone has read the header and decided, this is usually already in hand.
+        browser.prefetchVariants(set.id)
     }
 
     // Which cards this collection holds, and which it is holding a pocket open for.
@@ -218,7 +225,7 @@ fun SetScreen(
                             set = set,
                             cards = cards,
                             loading = loading,
-                            building = buildingMasterSet,
+                            building = building,
                             layout = defaultLayout,
                             existingBinder = existingBinder,
                             failure = browser.variantsError,
@@ -339,12 +346,15 @@ fun SetScreen(
 /**
  * The two ways to turn a set into work you can do, and the way back once one is built.
  *
- * A set binder is the published checklist: one pocket per card, every one marked wanted.
- * A master set is the same set with every *variation* of every card in it -- the holo and
- * the reverse holo of a card are different pulls, different prices and different pockets
- * -- so it runs half again as long and has to ask the catalog which press runs each card
- * was printed in before it can be sized. That question is the whole reason the second
- * button is slower than the first, and the caption says so rather than leaving someone
+ * A set binder is the published checklist: one pocket per card, in whichever press run
+ * that card was actually printed in -- a normal for most of them, a holo for the ex that
+ * was never printed any other way. A master set is the same set with every *variation* of
+ * every card in it, so a card that exists as a normal, a holo and a reverse gets three
+ * pockets and the binder runs half again as long.
+ *
+ * Both have to ask the catalog which press runs each card exists in, which is a request
+ * the screen starts on the way in rather than on the tap. When it has not landed yet the
+ * button waits on it, so the caption says what is happening rather than leaving someone
  * wondering whether the tap registered.
  *
  * Both stay offered after a binder exists, which is a reversal: this used to collapse to
@@ -360,7 +370,7 @@ private fun SetActions(
     set: RemoteSet,
     cards: List<SearchHit>,
     loading: Boolean,
-    building: Boolean,
+    building: SetBuild?,
     layout: BinderLayout,
     existingBinder: Binder?,
     /** Why the last master set could not be worked out, if it could not be. */
@@ -372,7 +382,7 @@ private fun SetActions(
 ) {
     val count = cards.size.takeIf { it > 0 } ?: set.officialCount ?: 0
     val sheets = sheetsToHold(count.coerceAtLeast(1), layout)
-    val ready = !loading && !building && cards.isNotEmpty()
+    val ready = !loading && building == null && cards.isNotEmpty()
 
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (existingBinder != null) {
@@ -385,8 +395,14 @@ private fun SetActions(
         }
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val setLabel = if (loading) "Loading…" else "Set binder"
-            val masterLabel = if (building) "Reading…" else "Master set"
+            // Only the tapped button says what it is doing. Both go dim, but a pair that
+            // both read "Reading…" leaves no trace of which one is about to open.
+            val setLabel = when {
+                building == SetBuild.SetBinder -> "Reading…"
+                loading -> "Loading…"
+                else -> "Set binder"
+            }
+            val masterLabel = if (building == SetBuild.MasterSet) "Reading…" else "Master set"
 
             // Filled only when there is nothing built yet. Once a binder exists, the way
             // back into it is the loud thing on the screen and these two are the aside.
@@ -421,14 +437,15 @@ private fun SetActions(
             text = when {
                 failure != null -> failure
                 cards.isEmpty() -> "A binder can be built once the checklist has loaded."
-                building ->
+                building != null ->
                     "Reading which variations each of the $count cards was printed in. " +
                         "This takes a few seconds the first time a set is asked."
                 else ->
                     "A set binder is $sheets ${if (sheets == 1) "sheet" else "sheets"} of " +
-                        "${layout.displayName} pages -- one pocket per card, every one marked " +
-                        "wanted. A master set opens a pocket for every variation instead: " +
-                        "normal, holo and reverse, each priced on its own."
+                        "${layout.displayName} pages -- one pocket per card, in the variation " +
+                        "it was printed in, every one marked wanted. A master set opens a " +
+                        "pocket for every variation instead: normal, holo and reverse, each " +
+                        "priced on its own."
             },
             color = if (failure != null) Ink.Loss else Ink.TextTertiary,
             style = MaterialTheme.typography.bodySmall,

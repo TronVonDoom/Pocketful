@@ -95,6 +95,25 @@ object CardImport {
     }
 
     /**
+     * One pocket per card, each in the press run that card was actually printed in.
+     *
+     * The plainest finish that exists, which is not the same as the plainest finish. Most
+     * cards are normals and get a normal pocket, but a modern ex or a vintage holo rare
+     * was never printed as a normal at all, and a want-pocket for a variation nobody has
+     * ever pulled is a pocket that can never be filled from a real binder. [finishesOf]
+     * already ranks them plainest-first, so the head of that list is the answer.
+     *
+     * A card the catalog could not be asked about falls back to a normal -- which is what
+     * every pocket in this binder used to be.
+     */
+    fun checklist(
+        hits: List<SearchHit>,
+        variants: Map<String, RemoteVariants>,
+    ): List<SetPocket> = hits.map { hit ->
+        SetPocket(hit, finishesOf(variants[hit.id]).first())
+    }
+
+    /**
      * Every pocket a master set needs, in the order they go into the binder.
      *
      * A master set is the set with every variation of every card in it, so the checklist
@@ -103,10 +122,11 @@ object CardImport {
      * a card's normal, holo and reverse sit together, rather than the binder holding every
      * normal in the set and then starting over at card one.
      *
-     * A card the catalog could not be asked about falls back to the single pocket a plain
-     * checklist would have given it. A missing holo pocket is one the user can add in a
-     * gesture; a card missing outright is a hole in the checklist they have to notice
-     * first.
+     * The difference from [checklist] is only how much of each card's list is taken: that
+     * one keeps the head, this one keeps all of it. A card the catalog could not be asked
+     * about therefore falls back to the same single pocket either way. A missing holo
+     * pocket is one the user can add in a gesture; a card missing outright is a hole in
+     * the checklist they have to notice first.
      */
     fun masterSet(
         hits: List<SearchHit>,

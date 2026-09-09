@@ -40,7 +40,6 @@ import app.pocketful.domain.variantBriefs
 import app.pocketful.data.CatalogSync
 import app.pocketful.data.RemoteSet
 import app.pocketful.data.SearchHit
-import app.pocketful.data.SetPocket
 import app.pocketful.state.LocalAppSettings
 import app.pocketful.state.rememberCardLookup
 import app.pocketful.state.rememberCatalogBrowser
@@ -66,6 +65,7 @@ import app.pocketful.ui.nav.IslandNavBar
 import app.pocketful.ui.nav.SystemBackHandler
 import app.pocketful.ui.search.AddToCollectionSheet
 import app.pocketful.ui.search.SearchScreen
+import app.pocketful.ui.search.SetBuild
 import app.pocketful.ui.search.SetScreen
 import app.pocketful.ui.search.sheetsToHold
 import app.pocketful.ui.settings.SettingsScreen
@@ -150,9 +150,9 @@ fun App() {
     // Search: the card waiting to be recorded, and whether one is still being fetched.
     var addingCard by remember { mutableStateOf<CardBrief?>(null) }
     var importingCard by remember { mutableStateOf(false) }
-    // True while a master set's press runs are being read out of the catalog. Held here
-    // rather than in the set screen because the screen goes away when the binder opens.
-    var buildingMasterSet by remember { mutableStateOf(false) }
+    // Which binder a set is currently being turned into, if either. Held here rather than
+    // in the set screen because the screen goes away when the binder it made opens.
+    var buildingBinder by remember { mutableStateOf<SetBuild?>(null) }
     // The set being looked at, as a route rather than a sheet. A set is a place -- it has
     // information, a checklist and an action of its own -- and a summary card floating
     // over the tab you found it on could carry none of that without becoming a screen
@@ -255,47 +255,50 @@ fun App() {
      * have, so the honest starting point is the whole set with everything still to find.
      * Ticking cards off is one gesture per handful from inside the binder.
      */
-    val createBinderForSet: (RemoteSet, List<SetPocket>, Boolean) -> Unit = { set, pockets, master ->
-        val layout = store.settings.defaultLayout
-        val count = pockets.size.takeIf { it > 0 } ?: set.officialCount ?: 0
-        val id = store.createSetBinder(
-            name = if (master) "${set.name} master set" else set.name,
-            // A master set is counted in pockets rather than in cards, because it holds
-            // more pockets than the set has cards and a subtitle claiming 358 cards for a
-            // 201-card set reads as a bug in the checklist.
-            subtitle = "${count.takeIf { it > 0 } ?: "?"} ${if (master) "pockets" else "cards"} · " +
-                set.id.uppercase(),
-            layout = layout,
-            sheetCount = count.takeIf { it > 0 }?.let { sheetsToHold(it, layout) }
-                ?: store.settings.defaultSheetCount,
-            spineColor = SpineSwatches.random().value,
-            sourceSetId = set.id,
-            pockets = pockets,
-        )
-        landingOrdinal = null
-        closeDetails()
-        openBinderId = id
-    }
-
     /**
-     * The same thing, one pocket per *variation* rather than per card.
+     * Turns a set into a binder, in one of its two shapes, and opens it.
      *
-     * Asynchronous where the plain build is instant, and unavoidably so: a set listing
-     * says which cards exist but not which press runs each was printed in, and that is the
-     * entire question a master set turns on. The wait is a few seconds on a big set and it
-     * is paid once -- the answer is held for the rest of the session, so a second master
-     * set of the same set is immediate.
+     * Filled, not merely sized -- which is the reverse of what this used to do. The old
+     * argument was that pre-marking a hundred pockets as wanted decided on the user's
+     * behalf which printings they were chasing. In practice the alternative decided
+     * something worse: that they would type a hundred card names in by hand. A set is a
+     * published checklist, and a want list *is* that checklist minus what you already
+     * have, so the honest starting point is the whole set with everything still to find.
+     * Ticking cards off is one gesture per handful from inside the binder.
      *
-     * Nothing is built if the press runs could not be read. A binder called "master set"
-     * that quietly turned out to be the plain checklist is worse than a button that says
-     * it could not do it, because the first one is only discovered a hundred pockets in.
+     * Both shapes are asynchronous, and unavoidably so: a set listing says which cards
+     * exist but not which press runs each was printed in, and neither binder can be filled
+     * without that. The set screen starts fetching it on the way in, so the usual case is
+     * that this returns immediately; the wait is paid once per set per session.
      */
-    val createMasterSetForSet: (RemoteSet, List<SearchHit>) -> Unit = { set, cards ->
-        buildingMasterSet = true
+    val buildBinderForSet: (RemoteSet, List<SearchHit>, SetBuild) -> Unit = { set, cards, shape ->
+        buildingBinder = shape
         scope.launch {
-            val pockets = browser.masterSetOf(set.id, cards)
-            buildingMasterSet = false
-            if (pockets.isNotEmpty()) createBinderForSet(set, pockets, true)
+            val master = shape == SetBuild.MasterSet
+            val pockets = if (master) browser.masterSetOf(set.id, cards)
+            else browser.checklistOf(set.id, cards)
+            buildingBinder = null
+            // Empty only when a master set could not be worked out at all. The screen has
+            // the reason and says so; there is nothing worth opening here.
+            if (pockets.isEmpty()) return@launch
+
+            val layout = store.settings.defaultLayout
+            val count = pockets.size
+            val id = store.createSetBinder(
+                name = if (master) "${set.name} master set" else set.name,
+                // A master set is counted in pockets rather than in cards, because it holds
+                // more pockets than the set has cards and a subtitle claiming 358 cards for
+                // a 201-card set reads as a bug in the checklist.
+                subtitle = "$count ${if (master) "pockets" else "cards"} · ${set.id.uppercase()}",
+                layout = layout,
+                sheetCount = sheetsToHold(count, layout),
+                spineColor = SpineSwatches.random().value,
+                sourceSetId = set.id,
+                pockets = pockets,
+            )
+            landingOrdinal = null
+            closeDetails()
+            openBinderId = id
         }
     }
 
@@ -468,16 +471,14 @@ fun App() {
                             existingBinder = snapshot.binders
                                 .firstOrNull { it.sourceSetId == current.set.id },
                             importing = importingCard,
-                            buildingMasterSet = buildingMasterSet,
+                            building = buildingBinder,
                             onBack = { openSet = null },
                             onCreateBinder = { cards ->
-                                createBinderForSet(
-                                    current.set,
-                                    cards.map { SetPocket(it, Finish.NON_HOLO) },
-                                    false,
-                                )
+                                buildBinderForSet(current.set, cards, SetBuild.SetBinder)
                             },
-                            onCreateMasterSet = { cards -> createMasterSetForSet(current.set, cards) },
+                            onCreateMasterSet = { cards ->
+                                buildBinderForSet(current.set, cards, SetBuild.MasterSet)
+                            },
                             onOpenBinder = openBinder,
                             onAddCard = { hit -> importRemoteCard(hit) },
                         )

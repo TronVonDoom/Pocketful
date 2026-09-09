@@ -487,7 +487,6 @@ fun ToggleSwitch(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true,
 ) {
     val track by animateColorAsState(
         if (checked) Ink.Accent.copy(alpha = 0.85f) else Ink.SurfaceHigh,
@@ -501,7 +500,7 @@ fun ToggleSwitch(
             .clip(AppShape.Pill)
             .background(track)
             .border(1.dp, if (checked) Color.Transparent else Ink.OutlineSoft, AppShape.Pill)
-            .clickable(enabled = enabled) { onCheckedChange(!checked) },
+            .clickable { onCheckedChange(!checked) },
     ) {
         Box(
             Modifier

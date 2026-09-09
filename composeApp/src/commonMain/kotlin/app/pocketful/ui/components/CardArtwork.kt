@@ -69,14 +69,10 @@ fun CardArtwork(
         // -- sixteen synchronised sweeps read as one screen-wide strobe rather than as
         // sixteen cards catching the light.
         //
-        // The two foil switches are read here rather than at each call site. Five places
-        // draw a card, the settings screen makes one promise about foil, and a tile that
-        // went on shimmering after the toggle was turned off was a toggle that did not
-        // work.
-        val settings = LocalAppSettings.current
-        if (holo && settings.holoShimmer) {
-            HoloSheen(seed = artStem.hashCode(), sparkle = settings.holoSparkle)
-        }
+        // The switch is read here rather than at each call site. Five places draw a card,
+        // the settings screen makes one promise about foil, and a tile that went on
+        // shimmering after the toggle was turned off was a toggle that did not work.
+        if (holo && LocalAppSettings.current.holoShimmer) HoloSheen(seed = artStem.hashCode())
     }
 }
 
@@ -99,11 +95,10 @@ fun CardArtwork(
  * different ways depending on which screen it is being looked at from.
  *
  * @param seed anything stable about the card. Only its remainder is used, to spread the
- *   start of the sweep across the pockets on a page.
- * @param sparkle whether the foil also glitters -- see [flecksFor].
+ *   start of the sweep across the pockets on a page, and to fix where its flecks sit.
  */
 @Composable
-fun HoloSheen(seed: Int = 0, sparkle: Boolean = false) {
+fun HoloSheen(seed: Int = 0) {
     val leadIn = seed.mod(STAGGER_STEPS) * (REST_MILLIS / STAGGER_STEPS)
     val flecks = remember(seed) { flecksFor(seed) }
 
@@ -155,8 +150,6 @@ fun HoloSheen(seed: Int = 0, sparkle: Boolean = false) {
                 end = Offset(start.x + span, size.height),
             ),
         )
-
-        if (!sparkle) return@Canvas
 
         // How far along the band a point sits, in the same coordinate the gradient spaces
         // its colour stops along: 0 at the leading edge, 1 at the trailing one, 0.5 in the

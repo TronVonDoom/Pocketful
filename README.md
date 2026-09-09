@@ -27,9 +27,9 @@ toploaders on a shelf. So that is what it models.
   carries the TCGplayer market quote for its finish. Cards that cannot be matched exactly
   are left exactly as they were rather than being guessed at.
 - **The whole catalog, browsable.** 218 sets across every era, sorted four ways, with a
-  checklist per set and two ways to turn one into a binder: a set binder, which opens a
-  pocket for every card, or a master set, which opens one for every *variation* of every
-  card — the holo and the reverse holo included.
+  checklist per set and two ways to turn one into a binder: a set binder, which opens one
+  pocket per card in the printing that card actually exists in, or a master set, which
+  opens a pocket for every *variation* of every card — holo and reverse holo included.
 - **A trade table.** Flag cards as available, and see what is on offer against what you
   are still chasing.
 

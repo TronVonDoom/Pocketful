@@ -43,7 +43,6 @@ import app.pocketful.domain.VariantId
  */
 data class AppSettings(
     val holoShimmer: Boolean = true,
-    val holoSparkle: Boolean = true,
     val showPocketPrices: Boolean = true,
     val showWantedGhosts: Boolean = true,
     val abbreviateValues: Boolean = true,
