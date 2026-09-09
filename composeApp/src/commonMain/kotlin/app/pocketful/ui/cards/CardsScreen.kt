@@ -207,7 +207,7 @@ fun CardsScreen(
                             brief = row.brief,
                             // The set name is already implied by the collector number, and
                             // repeating it next to a binder that shares its name read as
-                            // "Base Set · Base Set · pocket 4".
+                            // "Base Set · Base Set · Pocket 4".
                             caption = "${row.brief.collectorNumber} · ${row.locationLabel}",
                             value = row.value.displayOrNull(),
                             valueColor = Ink.Gold,
@@ -248,7 +248,7 @@ fun CardsScreen(
                     ) { row ->
                         CardTile(
                             brief = row.brief,
-                            caption = "${row.binderName} · pocket ${row.ordinal + 1}",
+                            caption = "${row.binderName} · Pocket ${row.ordinal + 1}",
                             value = row.targetPrice.displayOrNull(),
                             valueColor = Ink.Wanted,
                             badge = "WANT",

@@ -366,7 +366,7 @@ private fun BinderTile(
         gainLabel = summary.gainPercentLabel,
         gainPositive = summary.unrealizedGain.cents >= 0,
         fillFraction = if (binder.capacity == 0) 0f else summary.ownedCount.toFloat() / binder.capacity,
-        badge = if (summary.wantedCount > 0) "${summary.wantedCount} wanted" else null,
+        badge = if (summary.wantedCount > 0) "${summary.wantedCount} Wanted" else null,
         badgeColor = Ink.Wanted,
         onClick = onClick,
         onLongClick = onLongClick,

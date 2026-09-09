@@ -395,26 +395,35 @@ private fun PocketStatusPill(
     val showPrice = settings.showPocketPrices && !view.value.isZero
     if (!view.forTrade && !view.isHolo && !showPrice) return
 
+    // Tight vertically, generous horizontally. The pill sits over the bottom edge of the
+    // artwork, so every dp of its height is a dp of a card it is covering -- while its
+    // width costs nothing, the corner it occupies being the card's own margin. Which is
+    // also why the marks inside can be bigger than the pill got shorter: the constraint
+    // was never how much room they needed, it was how much card the box around them ate.
     Row(
         modifier
             .clip(AppShape.Pill)
             .background(if (grounded) Color.Black.copy(alpha = 0.72f) else Color.Transparent)
-            .padding(horizontal = if (grounded) 4.dp else 0.dp, vertical = if (grounded) 2.dp else 0.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
+            .padding(horizontal = if (grounded) 5.dp else 0.dp, vertical = 0.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (view.forTrade) {
-            Icon(AppIcons.Trade, "Up for trade", Modifier.size(9.dp), tint = Ink.Gain)
+            Icon(AppIcons.Trade, "Up for trade", Modifier.size(11.dp), tint = Ink.Gain)
         }
         if (view.isHolo) {
-            Icon(AppIcons.Sparkle, view.finish.label, Modifier.size(9.dp), tint = Ink.Foil)
+            Icon(AppIcons.Sparkle, view.finish.label, Modifier.size(11.dp), tint = Ink.Foil)
         }
         if (showPrice) {
             Text(
                 text = view.value.display(),
                 color = Ink.Gold,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Medium,
+                fontSize = 10.sp,
+                // The line box, not the glyphs. Left at its default the text carried
+                // four dp of leading the icons beside it did not have, and that padding
+                // was most of the pill's height.
+                lineHeight = 11.sp,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
             )
         }

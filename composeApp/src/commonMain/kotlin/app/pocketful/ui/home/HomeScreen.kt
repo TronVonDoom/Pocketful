@@ -250,7 +250,7 @@ fun HomeScreen(
                 ) { want ->
                     CardTile(
                         brief = want.brief,
-                        caption = "${want.binderName} · pocket ${want.ordinal + 1}",
+                        caption = "${want.binderName} · Pocket ${want.ordinal + 1}",
                         value = want.targetPrice.displayOrNull(),
                         valueColor = Ink.Wanted,
                         badge = "WANT",

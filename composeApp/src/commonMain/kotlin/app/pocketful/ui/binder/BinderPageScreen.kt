@@ -79,6 +79,8 @@ fun BinderPageScreen(
     onMarkOwned: (Set<Int>) -> Unit,
     /** Puts the selected filled pockets back on the want list, deleting their copies. */
     onMarkWanted: (Set<Int>) -> Unit,
+    /** Flags or unflags the selected filled pockets as up for trade. */
+    onSetForTrade: (Set<Int>, Boolean) -> Unit,
     onClearSlots: (Set<Int>) -> Unit,
     modifier: Modifier = Modifier,
     initialOrdinal: Int? = null,
@@ -111,8 +113,16 @@ fun BinderPageScreen(
     val selectedWanted = remember(selection, binder) {
         selection.count { binder.paddedSlots.getOrNull(it) is SlotContent.Wanted }
     }
-    val selectedOwned = remember(selection, binder) {
-        selection.count { binder.paddedSlots.getOrNull(it) is SlotContent.Filled }
+    val selectedCopies = remember(selection, binder) {
+        selection.mapNotNull { (binder.paddedSlots.getOrNull(it) as? SlotContent.Filled)?.copyId }
+    }
+    val selectedOwned = selectedCopies.size
+    // Which way the trade action should go. Already-offered cards flip off, so sweeping a
+    // page you have changed your mind about is the same gesture as flagging it was --
+    // an action that could only ever add would leave no way to take a page back off the
+    // table short of opening every pocket in it.
+    val selectedAllForTrade = remember(selectedCopies, snapshot) {
+        selectedCopies.isNotEmpty() && selectedCopies.all { snapshot.copies[it]?.forTrade == true }
     }
 
     // Shrinking a binder can leave the pager parked past the last page.
@@ -208,9 +218,13 @@ fun BinderPageScreen(
                     }
                 },
             ) {
+                // Four verbs, in the order a page gets worked through: record what you
+                // found, mark what you are still missing, pick out the spares, clear the
+                // rest. The count each one would act on lives on the island's own chip,
+                // so the labels stay one word and four of them fit a phone.
                 SelectionAction(
                     icon = AppIcons.Check,
-                    label = if (selectedWanted > 0) "I have $selectedWanted" else "I have",
+                    label = "Have",
                     enabled = selectedWanted > 0,
                     onClick = {
                         onMarkOwned(selection)
@@ -224,6 +238,22 @@ fun BinderPageScreen(
                     enabled = selectedOwned > 0,
                     onClick = { confirmingWanted = true },
                     tint = if (selectedOwned > 0) Ink.Wanted else Ink.TextTertiary,
+                )
+                SelectionAction(
+                    icon = AppIcons.Trade,
+                    label = "For Trade",
+                    enabled = selectedOwned > 0,
+                    onClick = {
+                        onSetForTrade(selection, !selectedAllForTrade)
+                        selection = emptySet()
+                    },
+                    // Lit while the selection is already offered, so the button says
+                    // which way the next press will go before it is pressed.
+                    tint = when {
+                        selectedOwned == 0 -> Ink.TextTertiary
+                        selectedAllForTrade -> Ink.Gain
+                        else -> Ink.TextSecondary
+                    },
                 )
                 SelectionAction(
                     icon = AppIcons.Minus,

@@ -156,7 +156,7 @@ data class CopyRow(
 ) {
     val locationLabel: String
         get() = when (val location = copy.location) {
-            is Location.BinderSlot -> holderName?.let { "$it · pocket ${(ordinal ?: 0) + 1}" } ?: "Filed"
+            is Location.BinderSlot -> holderName?.let { "$it · Pocket ${(ordinal ?: 0) + 1}" } ?: "Filed"
             is Location.InContainer -> holderName ?: "Stored"
             Location.Unassigned -> "Unfiled"
             is Location.AtGrading -> "At ${location.company.name}"

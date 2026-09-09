@@ -452,6 +452,9 @@ fun App() {
                                     onEditBinder = { editor = Editor.EditBinder(binder.id) },
                                     onMarkOwned = { ordinals -> store.markSlotsOwned(binder.id, ordinals) },
                                     onMarkWanted = { ordinals -> store.markSlotsWanted(binder.id, ordinals) },
+                                    onSetForTrade = { ordinals, forTrade ->
+                                        store.setSlotsForTrade(binder.id, ordinals, forTrade)
+                                    },
                                     onClearSlots = { ordinals -> store.clearSlots(binder.id, ordinals) },
                                 )
                             }

@@ -543,6 +543,37 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
         return moved
     }
 
+    /**
+     * Flags or unflags a run of filled pockets as up for trade.
+     *
+     * The bulk half of the switch on the pocket sheet, and the one selection action that
+     * changes nothing about where a card lives -- which is the whole point of the flag.
+     * Deciding what you would part with is done by looking at a page and picking the
+     * spares off it, so it belongs in the same gesture as the rest of that page's edits
+     * rather than in twelve separate sheets.
+     *
+     * Pockets that are empty, wanted or already in the asked-for state are skipped, so
+     * the count that comes back is what actually changed.
+     */
+    fun setSlotsForTrade(binderId: BinderId, ordinals: Collection<Int>, forTrade: Boolean): Int {
+        val binder = snapshot.binder(binderId) ?: return 0
+        val copies = snapshot.copies.toMutableMap()
+        var changed = 0
+
+        for (ordinal in ordinals.distinct()) {
+            val slot = binder.paddedSlots.getOrNull(ordinal) as? SlotContent.Filled ?: continue
+            val copy = copies[slot.copyId] ?: continue
+            if (copy.forTrade == forTrade) continue
+            copies[slot.copyId] = copy.copy(forTrade = forTrade)
+            changed++
+        }
+        if (changed == 0) return 0
+
+        // No reconcile: the flag lives on the copy and moves nothing.
+        snapshot = snapshot.copy(copies = copies)
+        return changed
+    }
+
     /** Empties a run of pockets. Cards that were in them stay in the collection, unfiled. */
     fun clearSlots(binderId: BinderId, ordinals: Collection<Int>) {
         val binder = snapshot.binder(binderId) ?: return

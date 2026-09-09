@@ -108,6 +108,17 @@ private enum class Intent(val label: String, val accent: Color) {
 }
 
 /**
+ * How wide a search casts.
+ *
+ * One meaning in both intents: [Mine] keeps only cards the collection already has a copy
+ * of, [All] adds everything the catalogs know about. Defaulting to [All] because the
+ * commonest reason to type into this box is a card you have just pulled and the app has
+ * never heard of -- a picker that answered that with silence until you found a filter
+ * would be a search box that hides the thing you are searching for.
+ */
+private enum class Scope(val label: String) { All("All cards"), Mine("My collection") }
+
+/**
  * Everything that happens to one pocket.
  *
  * A pocket has more states than a list row does -- empty, owned, wanted, deliberately
@@ -231,7 +242,7 @@ fun SlotSheet(
                 brief = current.brief,
                 variants = snapshot.variantBriefs(current.brief.variantId),
                 existing = null,
-                title = "Add to pocket ${ordinal + 1}",
+                title = "Add to Pocket ${ordinal + 1}",
                 confirmLabel = "Add to binder",
                 onBack = { step = Step.Browse },
                 onClose = onDismiss,
@@ -505,6 +516,7 @@ private fun ColumnScope.BrowseStep(
 ) {
     var query by remember { mutableStateOf("") }
     var intent by remember { mutableStateOf(Intent.Own) }
+    var scope by remember { mutableStateOf(Scope.All) }
 
     // The one search box drives both catalogs. Typing twice to look in two places for the
     // same card would be the app admitting it has two catalogs, which is not the user's
@@ -532,6 +544,38 @@ private fun ColumnScope.BrowseStep(
             .mapNotNull { copy -> snapshot.brief(copy.variantId)?.let { copy to it } }
     }
 
+    val searching = query.isNotBlank()
+    // The filter only means anything against a query. Left to apply while the box is
+    // empty it would be a switch between "your shelf" and "the whole catalog" as a
+    // browsing mode, which is a second, quieter version of the intent control above it.
+    val mineOnly = searching && scope == Scope.Mine
+
+    // Cards you already have, ranked by the same search the catalog gets so that a copy
+    // and a catalog row never disagree about which of them matched better.
+    val yours = remember(unfiled, query) {
+        if (query.isBlank()) {
+            unfiled
+        } else {
+            val rank = unfiled.map { it.second }
+                .search(query, limit = 60)
+                .withIndex()
+                .associate { (index, brief) -> brief.variantId to index }
+            unfiled
+                .filter { it.second.variantId in rank }
+                .sortedBy { rank[it.second.variantId] }
+        }
+    }
+
+    // A card you are holding is either one the collection already knows about -- in which
+    // case it is above, under your own cards -- or a new one, which is what the catalog is
+    // for. Browsing the catalog with nothing typed is the *want* gesture: it is how a set
+    // binder gets its gaps opened. Under "I own it" it was offering every card the app had
+    // ever heard of as though you owned them all.
+    val showCatalog = !(intent == Intent.Own && !searching)
+    val catalogRows = remember(results, mineOnly, ownedCounts) {
+        if (mineOnly) results.filter { (ownedCounts[it.printingId] ?: 0) > 0 } else results
+    }
+
     SheetHeader(
         title = "Pocket ${ordinal + 1}",
         subtitle = pocketLocationLabel(binder, ordinal),
@@ -539,6 +583,7 @@ private fun ColumnScope.BrowseStep(
     )
 
     SheetBody {
+
         // Each side wears the colour it means everywhere else -- green for a card you
         // have, violet for one you are hunting -- so which way this is set is legible
         // without reading it. It decides whether the next tap files a card you are
@@ -557,15 +602,49 @@ private fun ColumnScope.BrowseStep(
             placeholder = "Search cards, sets, numbers",
         )
 
-        if (query.isBlank() && unfiled.isNotEmpty() && intent == Intent.Own) {
+        // Only once there is a query to narrow. An empty box has nothing to scope.
+        if (searching) {
+            SegmentedControl(
+                options = Scope.entries.toList(),
+                selected = scope,
+                onSelect = { scope = it },
+                label = { it.label },
+            )
+        }
+
+        // Your own cards, and under "I own it" the only thing shown until you search.
+        // These place the copy that already exists rather than recording a second one --
+        // filing a card you had put down somewhere is not the same event as buying it.
+        if (intent == Intent.Own) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionHeader("In your collection, unfiled · ${unfiled.size}")
-                unfiled.take(6).forEach { (copy, brief) ->
+                // The same name in both states. Calling it "Yours" while searching and
+                // "Unfiled in your collection" while not made one list look like two.
+                SectionHeader("Unfiled In Your Collection · ${yours.size}")
+                yours.forEach { (copy, brief) ->
                     CardListRow(
                         brief = brief,
                         subtitle = "${brief.setName} · ${copy.condition.short}",
                         onClick = { onPlaceExisting(copy.id) },
                         trailing = { ValueTrailing(snapshot.valueOf(copy).display()) },
+                    )
+                }
+                if (yours.isEmpty()) {
+                    Text(
+                        // Says *unfiled*, not "nothing of yours". A copy already sitting
+                        // in another pocket is very much yours, and this list leaves it
+                        // out on purpose -- a card cannot be in two pockets at once. The
+                        // vaguer wording put "Nothing of yours matches" directly above a
+                        // catalog row badged "Own 1", which reads as the app contradicting
+                        // itself rather than as two different questions.
+                        text = if (searching) {
+                            "No unfiled card of yours matches \"$query\". A copy already " +
+                                "in a pocket stays where it is."
+                        } else {
+                            "Nothing filed away loose. Search for a card you are holding " +
+                                "and it gets recorded into this pocket."
+                        },
+                        color = Ink.TextTertiary,
+                        style = MaterialTheme.typography.bodySmall,
                     )
                 }
             }
@@ -584,19 +663,19 @@ private fun ColumnScope.BrowseStep(
         // So a fruitless local search now says nothing at all and lets the online section
         // speak. The by-hand escape hatch has not gone anywhere; it is at the foot of this
         // sheet, where it belongs once both catalogs have actually been asked.
-        if (query.isBlank() || results.isNotEmpty()) {
+        if (showCatalog && (!searching || catalogRows.isNotEmpty())) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SectionHeader(
                     when {
                         // Counting printings rather than press runs makes a catalog of
                         // one an ordinary thing to see, so it has to be able to say so.
-                        query.isBlank() && catalog.size == 1 -> "Catalog · 1 card"
-                        query.isBlank() -> "Catalog · ${catalog.size} cards"
-                        results.size == 1 -> "1 match"
-                        else -> "${results.size} matches"
+                        !searching && catalog.size == 1 -> "Catalog · 1 Card"
+                        !searching -> "Catalog · ${catalog.size} Cards"
+                        catalogRows.size == 1 -> "1 Match"
+                        else -> "${catalogRows.size} Matches"
                     },
                 )
-                if (query.isBlank() && catalog.isEmpty()) {
+                if (!searching && catalog.isEmpty()) {
                     Text(
                         text = "Cards you file turn up here. Search to pull one out of the " +
                             "online catalog.",
@@ -604,11 +683,11 @@ private fun ColumnScope.BrowseStep(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                results.forEach { brief ->
+                catalogRows.forEach { brief ->
                     val ownedCount = ownedCounts[brief.printingId] ?: 0
                     CardListRow(
                         brief = brief,
-                        leadingBadge = if (ownedCount > 0) "own $ownedCount" else null,
+                        leadingBadge = if (ownedCount > 0) "Own $ownedCount" else null,
                         onClick = {
                             if (intent == Intent.Own) onPickOwned(brief) else onPickWanted(brief)
                         },
@@ -623,13 +702,15 @@ private fun ColumnScope.BrowseStep(
             }
         }
 
-        if (query.trim().length >= 2) {
+        // Nothing online is yours by definition, so a search narrowed to the collection
+        // does not reach for it -- and does not spend a request finding that out.
+        if (!mineOnly && query.trim().length >= 2) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SectionHeader(
                     title = when {
-                        lookup.searching -> "Searching the full catalog…"
-                        lookup.results.isEmpty() -> "Full catalog"
-                        else -> "Full catalog · ${lookup.results.size} found"
+                        lookup.searching -> "Searching The Full Catalog…"
+                        lookup.results.isEmpty() -> "Full Catalog"
+                        else -> "Full Catalog · ${lookup.results.size} Found"
                     },
                 )
 
@@ -671,7 +752,7 @@ private fun ColumnScope.BrowseStep(
                 // local search says nothing above.
                 if (!lookup.searching && lookup.results.isEmpty() && lookup.error == null) {
                     Text(
-                        text = if (results.isEmpty()) {
+                        text = if (catalogRows.isEmpty()) {
                             "No card matches \"$query\", here or online. If you are holding " +
                                 "one anyway, add it by hand below."
                         } else {
@@ -682,6 +763,18 @@ private fun ColumnScope.BrowseStep(
                     )
                 }
             }
+        }
+
+        // The collection-only case has no online section to carry this, and a scoped
+        // search that finds nothing should say what it did not look at rather than let
+        // an empty sheet imply the card does not exist.
+        if (mineOnly && yours.isEmpty() && catalogRows.isEmpty()) {
+            Text(
+                text = "Nothing in your collection matches \"$query\". Switch to All cards " +
+                    "to look through the catalog as well.",
+                color = Ink.TextTertiary,
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
 
         Hairline()
@@ -1006,17 +1099,25 @@ private fun ColumnScope.CreateCardStep(
 
 // ------------------------------------------------------------------ pieces
 
+/**
+ * Where in the binder this pocket is, as one line of equal parts.
+ *
+ * It used to lead with the binder's name and then mix its separators -- "Fresh - page 1 -
+ * row 1, column 1" -- so the row and column read as a subordinate clause of the page
+ * rather than as two more coordinates of the same address. They are all the same kind of
+ * fact, so they are all separated the same way.
+ *
+ * The binder's name comes off the front. It is already in the header of the screen this
+ * sheet is sitting on top of, and repeating it here spent the widest words on the one
+ * thing that cannot have changed since you tapped.
+ */
 private fun pocketLocationLabel(binder: Binder, ordinal: Int): String {
     val location = binder.layout.locate(ordinal)
-    return buildString {
-        append(binder.name)
-        append(" · page ")
-        append(location.faceIndex + 1)
-        append(" · row ")
-        append(location.row + 1)
-        append(", column ")
-        append(location.col + 1)
-    }
+    return listOf(
+        "Row ${location.row + 1}",
+        "Column ${location.col + 1}",
+        "Page ${location.faceIndex + 1}",
+    ).joinToString(" · ")
 }
 
 private fun conditionMultiplierLabel(condition: Condition): String = when {

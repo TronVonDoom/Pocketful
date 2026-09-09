@@ -79,7 +79,7 @@ fun CopySheet(
         SheetHeader(
             title = brief.name,
             subtitle = when {
-                binderName != null -> "$binderName · pocket ${slot.ordinal + 1}"
+                binderName != null -> "$binderName · Pocket ${slot.ordinal + 1}"
                 container != null -> "${container.name} · ${container.kind.label.lowercase()}"
                 else -> "Not filed anywhere"
             },
