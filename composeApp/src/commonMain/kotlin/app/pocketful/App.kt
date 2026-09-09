@@ -39,12 +39,14 @@ import app.pocketful.domain.brief
 import app.pocketful.domain.variantBriefs
 import app.pocketful.data.CatalogSync
 import app.pocketful.data.RemoteSet
+import app.pocketful.data.rememberDocumentTransfer
 import app.pocketful.data.rememberSaveStorage
 import app.pocketful.data.SearchHit
 import app.pocketful.state.AutosaveEffect
 import app.pocketful.state.LocalAppSettings
 import app.pocketful.state.rememberCardLookup
 import app.pocketful.state.rememberCollectionSaver
+import app.pocketful.state.rememberCollectionTransfer
 import app.pocketful.state.rememberCatalogBrowser
 import app.pocketful.state.rememberAppBootstrap
 import app.pocketful.state.rememberCollectionStore
@@ -129,6 +131,7 @@ private sealed interface Editor {
 fun App() {
     val store = rememberCollectionStore()
     val saver = rememberCollectionSaver(rememberSaveStorage())
+    val transfer = rememberCollectionTransfer(rememberDocumentTransfer())
     val snapshot = store.snapshot
     val catalog = rememberTcgDex()
     val catalogSync = remember(catalog) { CatalogSync(catalog) }
@@ -561,6 +564,20 @@ fun App() {
                                     catalogSync
                                         .run(store.snapshot, onProgress = onProgress)
                                         .also { store.applyCatalogSync(it) }
+                                },
+                                transfer = transfer,
+                                onExport = {
+                                    scope.launch { transfer.export(store.snapshot, store.settings) }
+                                },
+                                onImportChoose = { scope.launch { transfer.choose() } },
+                                onImportApply = {
+                                    // The same unwinding a reset does, and for the same
+                                    // reason: the binder or box on screen behind Settings
+                                    // may not exist in the collection that is arriving.
+                                    closeDetails()
+                                    openSet = null
+                                    slotTarget = null
+                                    transfer.apply(store)
                                 },
                                 onReset = {
                                     closeDetails()

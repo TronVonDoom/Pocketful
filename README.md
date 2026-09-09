@@ -60,7 +60,7 @@ with `sdk.dir=/path/to/Android/Sdk`.
 
 ```
 composeApp/src/commonMain/kotlin/app/pocketful/
-├── data/        the card catalog, prices, GitHub releases
+├── data/        the card catalog, prices, GitHub releases, saved and exported files
 ├── domain/      binders, containers, copies, money — no Compose in here
 ├── state/       the store, the catalog browser, the launch bootstrap
 └── ui/          screens, components, theme, icons
@@ -167,9 +167,16 @@ which is dated so the launch can be a cache check rather than a full re-sync of 
 in the collection. Writes are atomic, and a file that will not parse is kept under
 `.corrupt` rather than being overwritten with an empty one.
 
-Still to do: no export or import, so a collection lives on exactly one device and there is
-no way to move or back one up by hand. That is the next thing, and it is most of what an
-account system would otherwise be for.
+**Settings → Backup** writes the whole collection to a file you choose, and reads one
+back. The document is deliberately self-contained: it carries not only the binders, boxes
+and cards but the catalog entries they depend on, because a copy records a variant id and
+nothing else — so a backup without its catalog would restore onto a new phone as a list of
+cards with no names, no prices and no art. Importing replaces what is in the app, and says
+what is in the file before it does.
+
+Still to do: no merge, so importing is a restore rather than a way to combine two devices.
+The locally-minted ids (`copy`, `binder`) are sequences and would collide immediately,
+which is the same thing any future sync would have to solve first.
 
 ## License
 

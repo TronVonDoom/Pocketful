@@ -128,6 +128,32 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
         this.settings = settings
     }
 
+    /**
+     * Replaces the collection with an imported one, keeping the catalog it already had.
+     *
+     * The two halves are treated differently on purpose. Binders, boxes and copies are
+     * *replaced*: a collection is a claim about what one person owns, and merging two of
+     * them would invent someone who owns both, with no way to tell afterwards which cards
+     * came from where. The catalog is *merged*: its entries are upstream facts under
+     * upstream ids, so two copies of one never disagree, and keeping what was already
+     * here means an import cannot cost the device artwork and prices it had already
+     * fetched for cards the backup happens not to mention.
+     *
+     * [restore] is the launch-time sibling of this, and the difference is exactly that
+     * one: restore is the whole state arriving at a store nothing has touched, this is a
+     * collection arriving at one that is already in use.
+     */
+    fun importCollection(imported: CollectionSnapshot, settings: AppSettings) {
+        val current = snapshot
+        snapshot = imported.copy(
+            cards = current.cards + imported.cards,
+            printings = current.printings + imported.printings,
+            variants = current.variants + imported.variants,
+            prices = current.prices + imported.prices,
+        ).reconcileLocations()
+        this.settings = settings
+    }
+
     /** Back to a new install: every binder, box and card gone. */
     fun reset() {
         snapshot = CollectionSnapshot()

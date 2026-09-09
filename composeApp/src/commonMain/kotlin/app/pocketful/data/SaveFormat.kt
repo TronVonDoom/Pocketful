@@ -10,6 +10,8 @@ import app.pocketful.domain.PriceSnapshot
 import app.pocketful.domain.Printing
 import app.pocketful.domain.SlotContent
 import app.pocketful.domain.Variant
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -47,9 +49,10 @@ const val CATALOG_CACHE_FILE: String = "catalog-cache.json"
  * disagree -- and JSON object keys would have to be strings anyway. The maps are rebuilt
  * on the way in, keyed off the record itself.
  */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class CollectionSave(
-    val schema: Int = SAVE_SCHEMA,
+    @EncodeDefault val schema: Int = SAVE_SCHEMA,
     val copies: List<Copy> = emptyList(),
     val binders: List<Binder> = emptyList(),
     val containers: List<Container> = emptyList(),
@@ -81,9 +84,10 @@ data class SavedSettings(
  * Before this file existed the app re-matched and re-priced the entire collection on
  * every cold start, because it had no way to know it had already done so a minute ago.
  */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class CatalogCache(
-    val schema: Int = SAVE_SCHEMA,
+    @EncodeDefault val schema: Int = SAVE_SCHEMA,
     val fetchedAtEpochSeconds: Long = 0L,
     val cards: List<Card> = emptyList(),
     val printings: List<Printing> = emptyList(),
@@ -102,6 +106,12 @@ data class CatalogCache(
  * `encodeDefaults = false` keeps the file to what actually differs from a fresh record.
  * A 360-pocket set binder is mostly empty pockets and unremarkable near-mint copies, and
  * writing every default would triple the file for nothing.
+ *
+ * The version fields are marked [EncodeDefault] to opt back *in*, because a default that
+ * is not written is a default that cannot be read. A file whose schema is omitted reads
+ * back as whatever the running build calls current -- so the day [SAVE_SCHEMA] becomes 2,
+ * every file written under 1 would silently claim to be a 2 and any migration keyed on
+ * that number would skip exactly the files that needed it.
  */
 val SaveJson: Json = Json {
     ignoreUnknownKeys = true
@@ -130,6 +140,84 @@ fun CollectionSnapshot.toSave(settings: SavedSettings): CollectionSave = Collect
  */
 private fun List<SlotContent>.trimmedForSave(): List<SlotContent> =
     dropLastWhile { it == SlotContent.Empty }
+
+/**
+ * A collection as a document, meant to leave the device.
+ *
+ * Carries its own catalog, which is the whole difference between this and the save file.
+ * A copy names a variant id and nothing else -- what that card is *called*, what it is
+ * worth and what it looks like all live in the catalog -- so a collection imported onto a
+ * phone that has never seen those cards would be a list of ids with no names, no prices
+ * and no art, and no sync could repair it because a sync only fills in printings the app
+ * already knows about. Locally that is an unlikely edge case. Through an export it would
+ * be every single import, so the document carries what it needs to stand on its own.
+ *
+ * [app] is checked on the way in. It is the difference between "this is not a Pocketful
+ * backup" and a stack of confusing field-level errors from some other application's JSON.
+ */
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class CollectionExport(
+    /**
+     * Deliberately has no default, which is what makes it a marker at all.
+     *
+     * A field with a default is filled in for any document that omits it, so a version of
+     * this that defaulted to [EXPORT_MARKER] would stamp the name "pocketful" onto some
+     * other application's JSON and then congratulate itself for finding it there. Required
+     * means a file without it fails to decode, which is the honest answer: that is not one
+     * of these.
+     */
+    val app: String,
+    @EncodeDefault val schema: Int = SAVE_SCHEMA,
+    /** The day it was written, for whoever is looking at a folder of these later. */
+    val exportedOn: String? = null,
+    val collection: CollectionSave = CollectionSave(),
+    val catalog: CatalogCache = CatalogCache(),
+)
+
+const val EXPORT_MARKER: String = "pocketful"
+
+/** What the save dialog suggests. The date is what makes two backups tellable apart. */
+fun exportFileName(day: String): String = "pocketful-$day.json"
+
+fun CollectionSnapshot.toExport(settings: SavedSettings, day: String): CollectionExport =
+    CollectionExport(
+        app = EXPORT_MARKER,
+        exportedOn = day,
+        collection = toSave(settings),
+        catalog = referencedCatalog(),
+    )
+
+/**
+ * The slice of the catalog this collection actually depends on.
+ *
+ * Not the whole catalog: browsing a few thousand sets fills the local one with cards
+ * nobody owns, and a backup is a record of a collection rather than a copy of TCGdex.
+ *
+ * Every variant of a referenced *printing* is kept, though, not only the one owned. The
+ * finish picker offers "you own the reverse holo, did you mean the holo" by looking at the
+ * other press runs of the same printing, and an import that kept only what was owned would
+ * silently lose that choice on every card.
+ */
+private fun CollectionSnapshot.referencedCatalog(): CatalogCache {
+    val referenced = buildSet {
+        copies.values.forEach { add(it.variantId) }
+        binders.forEach { binder ->
+            binder.paddedSlots.forEach { if (it is SlotContent.Wanted) add(it.variantId) }
+        }
+    }
+    val printingIds = referenced.mapNotNullTo(mutableSetOf()) { variants[it]?.printingId }
+    val keptPrintings = printingIds.mapNotNull { printings[it] }
+    val keptVariants = variants.values.filter { it.printingId in printingIds }
+    val cardIds = keptPrintings.mapTo(mutableSetOf()) { it.cardId }
+
+    return CatalogCache(
+        cards = cardIds.mapNotNull { cards[it] },
+        printings = keptPrintings,
+        variants = keptVariants,
+        prices = keptVariants.mapNotNull { prices[it.id] },
+    )
+}
 
 fun CollectionSnapshot.toCatalogCache(fetchedAtEpochSeconds: Long): CatalogCache = CatalogCache(
     fetchedAtEpochSeconds = fetchedAtEpochSeconds,

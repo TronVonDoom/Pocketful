@@ -32,6 +32,7 @@ import app.pocketful.AppVersion
 import app.pocketful.data.CatalogSync
 import app.pocketful.domain.CollectionSnapshot
 import app.pocketful.state.AppSettings
+import app.pocketful.state.CollectionTransfer
 import app.pocketful.ui.binder.LayoutPicker
 import app.pocketful.ui.components.AppButton
 import app.pocketful.ui.components.AppOutlineButton
@@ -64,9 +65,18 @@ fun SettingsScreen(
     onUpdate: ((AppSettings) -> AppSettings) -> Unit,
     onReset: () -> Unit,
     onSyncCatalog: suspend ((done: Int, total: Int) -> Unit) -> CatalogSync.Result,
+    transfer: CollectionTransfer,
+    onExport: () -> Unit,
+    onImportChoose: () -> Unit,
+    onImportApply: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var confirmingReset by remember { mutableStateOf(false) }
+    // Nothing to back up is a reason to grey the button out rather than to let someone
+    // save an empty file and find out later that it was empty.
+    val hasSomethingToExport = snapshot.binders.isNotEmpty() ||
+        snapshot.containers.isNotEmpty() ||
+        snapshot.copies.isNotEmpty()
     var sync by remember { mutableStateOf<SyncState>(SyncState.Idle) }
     val scope = rememberCoroutineScope()
 
@@ -276,6 +286,82 @@ fun SettingsScreen(
                 }
             }
 
+            item { SectionHeader("Backup") }
+            item {
+                Panel {
+                    val pending = transfer.pending
+                    if (pending != null) {
+                        // What is in the file, before the button that acts on it. The
+                        // counts are the question: "replace everything" is unanswerable,
+                        // "replace everything with 4 binders and 312 cards" is not.
+                        Text(
+                            text = "${pending.fileName} holds " +
+                                listOfNotNull(
+                                    plural(pending.binders, "binder"),
+                                    plural(pending.containers, "container"),
+                                    plural(pending.cards, "card"),
+                                ).joinToString(", ") + ".",
+                            color = Ink.TextPrimary,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "Importing replaces every binder, box and card in the app " +
+                                "with what is in this file. There is no undo, so export " +
+                                "what you have first if you want to keep it.",
+                            color = Ink.TextSecondary,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            AppOutlineButton("Cancel", { transfer.dismiss() }, Modifier.weight(1f))
+                            AppButton(
+                                label = "Replace",
+                                onClick = onImportApply,
+                                modifier = Modifier.weight(1f),
+                                tone = ButtonTone.Danger,
+                                icon = AppIcons.Download,
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "A backup is one file holding your binders, boxes and cards, " +
+                                "and the catalog entries they need to be readable on a phone " +
+                                "that has never seen them.",
+                            color = Ink.TextSecondary,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            AppOutlineButton(
+                                label = "Export",
+                                onClick = onExport,
+                                modifier = Modifier.weight(1f),
+                                enabled = !transfer.busy && hasSomethingToExport,
+                            )
+                            AppOutlineButton(
+                                label = "Import",
+                                onClick = onImportChoose,
+                                modifier = Modifier.weight(1f),
+                                enabled = !transfer.busy,
+                            )
+                        }
+                    }
+
+                    when (val status = transfer.status) {
+                        CollectionTransfer.Status.Idle -> Unit
+                        is CollectionTransfer.Status.Done -> {
+                            Spacer(Modifier.height(12.dp))
+                            Text(status.message, color = Ink.TextSecondary, style = MaterialTheme.typography.bodySmall)
+                        }
+                        is CollectionTransfer.Status.Problem -> {
+                            Spacer(Modifier.height(12.dp))
+                            Text(status.message, color = Ink.Loss, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+
             item { SectionHeader("Updates") }
             item { UpdatePanel() }
 
@@ -288,13 +374,14 @@ fun SettingsScreen(
                         // against a release tag and cannot drift from it.
                         DetailRow("Pocketful", "v${AppVersion.NAME} (${AppVersion.CODE})")
                         DetailRow("Price data", if (priced > 0) "TCGplayer via TCGdex" else "none yet")
-                        DetailRow("Storage", "in memory")
+                        DetailRow("Storage", "on this device")
                     }
                     Spacer(Modifier.height(14.dp))
                     Text(
                         text = "Prices are whatever the catalog last quoted, and only for cards it " +
-                            "could match. Changes live for as long as the app is open and are not " +
-                            "written to disk yet.",
+                            "could match. Your collection is written to this device as you change " +
+                            "it, and lives nowhere else -- so a backup is the only copy of it that " +
+                            "survives losing the phone.",
                         color = Ink.TextTertiary,
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -384,4 +471,17 @@ private fun startSync(
         )
     }
     return SyncState.Running(0, 0)
+}
+
+/**
+ * "3 binders", or nothing at all when there are none.
+ *
+ * Returns null rather than "0 binders" so a caller can drop the empty categories from a
+ * list instead of reciting them: a backup of loose cards should say "312 cards", not
+ * "0 binders, 0 containers, 312 cards".
+ */
+private fun plural(count: Int, noun: String): String? = when (count) {
+    0 -> null
+    1 -> "1 $noun"
+    else -> "$count ${noun}s"
 }

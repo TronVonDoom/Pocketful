@@ -235,8 +235,12 @@ fun rememberCollectionSaver(storage: SaveStorage): CollectionSaver =
     remember(storage) { CollectionSaver(storage) }
 
 // ------------------------------------------------------------------ settings
+//
+// Not private: the same two shapes have to cross the same boundary when a collection is
+// exported to a document rather than saved to disk, and a second pair of converters that
+// had to be kept in step with these would be one pair too many.
 
-private fun SavedSettings.toAppSettings() = AppSettings(
+internal fun SavedSettings.toAppSettings() = AppSettings(
     holoShimmer = holoShimmer,
     showPocketPrices = showPocketPrices,
     showWantedGhosts = showWantedGhosts,
@@ -245,7 +249,7 @@ private fun SavedSettings.toAppSettings() = AppSettings(
     defaultSheetCount = defaultSheetCount,
 )
 
-private fun AppSettings.toSaved() = SavedSettings(
+internal fun AppSettings.toSaved() = SavedSettings(
     holoShimmer = holoShimmer,
     showPocketPrices = showPocketPrices,
     showWantedGhosts = showWantedGhosts,
