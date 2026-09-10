@@ -3,6 +3,7 @@ package app.pocketful.data
 import app.pocketful.AppVersion
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.UserAgent
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -74,6 +75,11 @@ class AppUpdates(
         val releasesUrl: String get() = "https://github.com/$OWNER/$REPO/releases"
 
         fun defaultClient(): HttpClient = HttpClient {
+            // GitHub's API documents a User-Agent as required and answers 403 to some
+            // clients without one. It has not bitten here because Ktor sends its own
+            // default, but relying on a library's default to satisfy someone else's
+            // stated requirement is a dependency nobody wrote down.
+            install(UserAgent) { agent = TcgDex.USER_AGENT }
             install(ContentNegotiation) {
                 json(Json { ignoreUnknownKeys = true; isLenient = true; explicitNulls = false })
             }

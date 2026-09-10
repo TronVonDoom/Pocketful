@@ -1,9 +1,11 @@
 package app.pocketful.data
 
+import app.pocketful.AppVersion
 import app.pocketful.domain.TcgGame
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.UserAgent
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
@@ -299,6 +301,15 @@ class TcgDex(
         private const val BASE = "https://api.tcgdex.net/v2"
 
         /**
+         * How this app introduces itself to every host it talks to.
+         *
+         * Built from [AppVersion] rather than hard-coded so a bumped release says so
+         * without anyone remembering to edit a second place.
+         */
+        val USER_AGENT: String =
+            "Pocketful/${AppVersion.NAME} (+https://github.com/TronVonDoom/Pocketful)"
+
+        /**
          * How many cards go into one batched variants query.
          *
          * Small enough that a dropped batch costs a handful of pockets rather than a
@@ -336,6 +347,22 @@ class TcgDex(
          * a new field upstream is not a crash on device.
          */
         fun defaultClient(): HttpClient = HttpClient {
+            /*
+             * Who is calling, and where to complain.
+             *
+             * TCGdex is a free service with no API key, which means the User-Agent is the
+             * only thing that identifies this app in their logs. Without it every install
+             * is an anonymous Ktor client indistinguishable from a scraper, and the only
+             * remedy available to them is an IP block that catches innocent traffic too.
+             * With it they can see how much of their load is Pocketful, and reach the
+             * person responsible before resorting to that.
+             *
+             * The version is included because "which release is doing this" is the first
+             * question anyone looking at a traffic spike asks, and the URL because a
+             * user agent nobody can act on is decoration.
+             */
+            install(UserAgent) { agent = USER_AGENT }
+
             /*
              * Bounded waiting, stated rather than inherited.
              *

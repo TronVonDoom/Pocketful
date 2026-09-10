@@ -58,8 +58,15 @@ class CatalogSync(private val api: TcgDex) {
         nowEpochSeconds: Long = 0L,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
     ): Result {
-        val sets = runCatching { api.sets() }.getOrElse {
-            return Result(matched = 0, unmatched = snapshot.printings.size, failure = UNREACHABLE)
+        val sets = runCatching { api.sets() }.getOrElse { cause ->
+            return Result(
+                matched = 0,
+                unmatched = snapshot.printings.size,
+                // Classified rather than assumed. Settings shows this string verbatim on a
+                // manual sync, and telling someone to check a working connection while the
+                // catalog is returning 503 sends them to debug the one thing that is fine.
+                failure = catalogFailureMessage(cause, "the set index"),
+            )
         }
 
         val targets = snapshot.printings.values.map { printing ->
@@ -202,9 +209,5 @@ class CatalogSync(private val api: TcgDex) {
         Finish.REVERSE_HOLO -> listOf("reverseHolofoil", "holofoil")
         Finish.FULL_ART, Finish.TEXTURED, Finish.GOLD, Finish.OTHER ->
             listOf("holofoil", "normal", "reverseHolofoil")
-    }
-
-    private companion object {
-        const val UNREACHABLE = "Could not reach the card catalog. Check your connection."
     }
 }

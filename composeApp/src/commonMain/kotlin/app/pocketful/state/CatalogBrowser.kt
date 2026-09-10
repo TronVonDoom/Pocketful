@@ -13,6 +13,7 @@ import app.pocketful.data.RemoteVariants
 import app.pocketful.data.SearchHit
 import app.pocketful.data.SetPocket
 import app.pocketful.data.TcgDex
+import app.pocketful.data.catalogFailureMessage
 import app.pocketful.data.game
 import app.pocketful.data.gameOfSeries
 import app.pocketful.domain.TcgGame
@@ -156,16 +157,19 @@ class CatalogBrowser(private val api: TcgDex) {
         runCatching { api.catalogIndex() }
             .onSuccess { index ->
                 if (index.sets.isEmpty()) {
-                    error = "Could not reach the card catalog. Check your connection and try again."
+                    // Answered, but with nothing in it. Both transports failed softly --
+                    // GraphQL puts its errors in a 200 body, and the REST fallback
+                    // returns an empty list rather than throwing -- so this is the one
+                    // failure that arrives as a success and needs saying separately.
+                    error = "The card catalog answered, but sent no sets. " +
+                        "It may be having trouble; try again in a few minutes."
                 } else {
                     groups = index.toGroups()
                     sets = index.sets
                     setsById = index.sets.associateBy { it.id }
                 }
             }
-            .onFailure {
-                error = "Could not reach the card catalog. Check your connection and try again."
-            }
+            .onFailure { error = catalogFailureMessage(it, "the set index") }
         loading = false
     }
 
@@ -192,7 +196,7 @@ class CatalogBrowser(private val api: TcgDex) {
     /** Every card in one set, for browsing a set's contents. */
     suspend fun cardsInSet(setId: String): List<SearchHit> =
         runCatching { api.cardsInSet(setId) }
-            .onFailure { error = "Could not load that set's cards." }
+            .onFailure { error = catalogFailureMessage(it, "that set's cards") }
             .getOrDefault(emptyList())
 
     /**
@@ -240,10 +244,18 @@ class CatalogBrowser(private val api: TcgDex) {
      */
     suspend fun masterSetOf(setId: String, cards: List<SearchHit>): List<SetPocket> {
         variantsError = null
-        val variants = variantsOf(setId)
+        val variants = runCatching { api.variantsInSet(setId) }
+            .onFailure { variantsError = catalogFailureMessage(it, "this set's variations") }
+            .getOrDefault(emptyMap())
         if (variants.isEmpty()) {
-            variantsError = "Could not read which variations this set was printed in. " +
-                "Check your connection and try again."
+            // Reached only when nothing threw: [TcgDex.variantsInSet] drops a batch that
+            // failed rather than failing the set, so the usual way to get here is the
+            // catalog answering every batch badly. That is not something this can blame
+            // on the user's connection, so it no longer does.
+            if (variantsError == null) {
+                variantsError = "The card catalog would not say which variations this " +
+                    "set was printed in. Try again in a few minutes."
+            }
             return emptyList()
         }
         return CardImport.masterSet(cards, variants)
