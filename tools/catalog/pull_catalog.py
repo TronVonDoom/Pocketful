@@ -9,19 +9,37 @@ to disk in the shape the app reads.
 
 Two files come out per set, and the split is the whole point:
 
-  sets/<id>.json    Static. Name, number, rarity, art stem, attacks. Immutable once
-                    a set is released, so it ships with the app and never expires.
+  sets/<id>.json    Static. Name, number, rarity, art stem, variants, attacks.
+                    Immutable once a set is released, so it ships with the app and
+                    never expires.
   prices/<id>.json  Volatile. Market prices, stamped with the hour they were taken.
                     Never bundled -- it would be stale before the APK finished
-                    uploading. Refreshed live, on a TTL.
+                    uploading. Refreshed on a schedule and published separately.
 
 Mixing the two into one document is the mistake this layout is built to avoid: it
 would make the immutable half expire at the speed of the volatile half.
 
+The two halves also cost wildly different amounts to fetch, which is why they are
+separate commands rather than one pass:
+
+  --static   GraphQL, 40 cards per POST. The whole catalog is ~590 requests.
+  --prices   REST, one request per card. The whole catalog is ~23,500 requests.
+
+That asymmetry is not a choice. TCGdex's GraphQL schema exposes `image`, `rarity`
+and `variants`, but carries no `pricing` field and no `thirdParty` ids -- both are
+REST-only. So static data is cheap to refresh and prices are not, which is exactly
+backwards from how often each one changes, and is the reason prices get their own
+schedule instead of riding along with a static pull.
+
+Running --prices daily and serving the result to users is strictly kinder to TCGdex
+than the app asking them directly: one client with a User-Agent and a backoff, once
+a day, instead of one request per card per user per sync.
+
 Usage:
-    python pull_catalog.py --sets base1 base2 base3      # named sets
-    python pull_catalog.py --first 3                     # first N by release date
-    python pull_catalog.py --all                         # the entire catalog
+    python pull_catalog.py --static --all           # every set, static half
+    python pull_catalog.py --static --sets base1    # named sets
+    python pull_catalog.py --prices --all           # every set, prices half
+    python pull_catalog.py --static --first 3       # first N by release date
 """
 
 from __future__ import annotations
@@ -42,15 +60,31 @@ LANG = "en"
 # Unbounded is a rate limit; serial is an afternoon.
 WORKERS = 6
 
+# How many cards go into one GraphQL POST. Big enough that the catalog is hundreds of
+# requests rather than tens of thousands, small enough that one dropped batch costs a
+# handful of cards and one response stays a readable size.
+BATCH = 40
+
 OUT = Path(__file__).resolve().parent.parent.parent / "catalog"
 
-# Fields that describe the card as printed. Everything here is fixed at print time.
-STATIC_FIELDS = (
-    "id", "localId", "name", "rarity", "illustrator", "category", "image",
-    "hp", "types", "stage", "evolveFrom", "description", "retreat", "suffix",
-    "regulationMark", "dexId", "variants", "attacks", "abilities",
-    "weaknesses", "resistances", "trainerType", "energyType", "effect", "level",
-)
+# The app introduces itself the same way. TCGdex needs no API key, so this header is
+# the only thing telling them who is calling and where to complain.
+USER_AGENT = "Pocketful-catalog-builder/0.2 (+https://github.com/TronVonDoom/Pocketful)"
+
+# Fields that describe the card as printed, as GraphQL selects them. Everything here is
+# fixed at print time. `variants` matters more than it looks: it is what a master-set
+# binder is built from, and fetching it per-card at runtime is the single most expensive
+# thing the app does.
+STATIC_SELECTION = """
+    id localId name rarity illustrator category image hp types stage evolveFrom
+    description retreat suffix regulationMark dexId trainerType energyType effect level
+    variants { normal holo reverse firstEdition wPromo }
+    variants_detailed { type subtype size stamp foil }
+    attacks { name cost damage effect }
+    abilities { type name effect }
+    weaknesses { type value }
+    resistances { type value }
+"""
 
 SET_INDEX_QUERY = """
 {
@@ -65,7 +99,7 @@ SET_INDEX_QUERY = """
 
 def session() -> requests.Session:
     s = requests.Session()
-    s.headers["User-Agent"] = "Pocketful-catalog-builder/0.1 (personal collection app)"
+    s.headers["User-Agent"] = USER_AGENT
     return s
 
 
@@ -84,63 +118,98 @@ def get_json(s: requests.Session, url: str, tries: int = 4):
     return None
 
 
-def set_index(s: requests.Session) -> list:
-    """Every set, dated and filed under its era. Only GraphQL carries both fields."""
-    for attempt in range(4):
+def post_graphql(s: requests.Session, query: str, tries: int = 4):
+    """
+    POST with backoff, returning `data` or None.
+
+    GraphQL answers 200 with its errors inside the body, so a missing or empty `data`
+    is the failure and the status code is not.
+    """
+    for attempt in range(tries):
         try:
-            r = s.post(f"{BASE}/graphql", json={"query": SET_INDEX_QUERY}, timeout=30)
+            r = s.post(f"{BASE}/graphql", json={"query": query}, timeout=45)
             if r.status_code == 200:
-                sets = (r.json().get("data") or {}).get("sets")
-                if sets:
-                    return sets
+                body = r.json()
+                if body.get("data"):
+                    return body["data"]
+                if body.get("errors"):
+                    # A malformed query fails identically every time; retrying it just
+                    # spends someone else's capacity to be told the same thing again.
+                    print(
+                        f"  !! GraphQL refused the query: "
+                        f"{json.dumps(body['errors'])[:200]}",
+                        file=sys.stderr,
+                    )
+                    return None
         except requests.RequestException:
             pass
         time.sleep(1.5 * (attempt + 1))
-    raise SystemExit("Could not reach the set index.")
+    return None
 
 
-def split_card(card: dict):
-    """One upstream card document into its immutable half and its volatile half."""
-    static = {k: card[k] for k in STATIC_FIELDS if card.get(k) is not None}
-
-    pricing = card.get("pricing") or {}
-    tcg = pricing.get("tcgplayer") or {}
-    prices = {}
-    for finish, quote in tcg.items():
-        # 'unit' and 'updated' sit alongside the finishes rather than inside them.
-        if not isinstance(quote, dict):
-            continue
-        market = quote.get("marketPrice")
-        if market:
-            prices[finish] = round(market * 100)  # cents, matching domain.Money
-    return static, ({"id": card["id"], "usd_cents": prices} if prices else None)
+def set_index(s: requests.Session) -> list:
+    """Every set, dated and filed under its era. Only GraphQL carries both fields."""
+    data = post_graphql(s, SET_INDEX_QUERY)
+    if not data or not data.get("sets"):
+        raise SystemExit("Could not reach the set index.")
+    return data["sets"]
 
 
-def pull_set(s: requests.Session, set_id: str):
+def prune(value):
+    """
+    Drops nulls and empties, recursively.
+
+    GraphQL returns every field it was asked for, so an unasked-for attack list arrives
+    as `null` and an absent type list as `[]`. Writing those out would roughly double
+    the catalog with fields that mean "no".
+    """
+    if isinstance(value, dict):
+        cleaned = {k: prune(v) for k, v in value.items()}
+        return {k: v for k, v in cleaned.items() if v not in (None, [], {}, "")}
+    if isinstance(value, list):
+        cleaned = [prune(v) for v in value]
+        return [v for v in cleaned if v not in (None, [], {}, "")]
+    return value
+
+
+def static_batch(s: requests.Session, ids: list[str]) -> list[dict]:
+    """One POST, one aliased `card` query per id. Empty if the batch could not be read."""
+    # Catalog-issued ids only. These are interpolated into a query string unescaped, and
+    # the one thing that must never be true is that a card id can close a literal. EX-era
+    # Unown are numbered "!" and "?" and would otherwise do exactly that.
+    safe = [c for c in ids if c and all(ch.isalnum() or ch in "-._" for ch in c)]
+    if not safe:
+        return []
+    query = "{ " + " ".join(
+        f'c{i}: card(id: "{cid}") {{ {STATIC_SELECTION} }}' for i, cid in enumerate(safe)
+    ) + " }"
+    data = post_graphql(s, query)
+    if not data:
+        return []
+    return [prune(row) for row in data.values() if row]
+
+
+def pull_static(s: requests.Session, set_id: str):
+    """One set's immutable half, batched over GraphQL."""
     detail = get_json(s, f"{BASE}/{LANG}/sets/{set_id}")
     if not detail:
         print(f"  !! {set_id}: set document unavailable", file=sys.stderr)
         return None
 
     briefs = detail.get("cards") or []
-    cards = []
-    prices = []
+    ids = [b["id"] for b in briefs]
 
+    batches = [ids[i:i + BATCH] for i in range(0, len(ids), BATCH)]
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        full = list(pool.map(lambda b: get_json(s, f"{BASE}/{LANG}/cards/{b['id']}"), briefs))
+        results = list(pool.map(lambda chunk: static_batch(s, chunk), batches))
+    cards = [card for batch in results for card in batch]
 
-    missing = []
-    for brief, card in zip(briefs, full):
-        if not card:
-            missing.append(brief["id"])
-            continue
-        static, price = split_card(card)
-        cards.append(static)
-        if price:
-            prices.append(price)
-
+    missing = set(ids) - {c["id"] for c in cards}
     if missing:
-        print(f"  !! {set_id}: {len(missing)} cards failed: {missing[:5]}", file=sys.stderr)
+        print(
+            f"  !! {set_id}: {len(missing)} cards did not answer: {sorted(missing)[:5]}",
+            file=sys.stderr,
+        )
 
     # Sorted by printed number so the file reads like the set does. localId is not
     # always numeric (promos, "TG01", "SV049"), so sort numerically where possible
@@ -152,7 +221,7 @@ def pull_set(s: requests.Session, set_id: str):
 
     cards.sort(key=order)
 
-    set_doc = {
+    return {
         "id": detail["id"],
         "name": detail["name"],
         "serie": detail.get("serie"),
@@ -164,21 +233,77 @@ def pull_set(s: requests.Session, set_id: str):
         "legal": detail.get("legal"),
         "cards": cards,
     }
-    price_doc = {
+
+
+def card_prices(card: dict) -> dict | None:
+    """
+    One card's TCGplayer quotes, in cents.
+
+    Only TCGplayer is read. The same document carries Cardmarket figures, but those are
+    in euros, and the app renders one currency symbol -- quietly filing a EUR number
+    under a "$" would be worse than showing no price at all.
+    """
+    pricing = card.get("pricing") or {}
+    tcg = pricing.get("tcgplayer") or {}
+    prices = {}
+    for finish, quote in tcg.items():
+        # 'unit' and 'updated' sit alongside the finishes rather than inside them.
+        if not isinstance(quote, dict):
+            continue
+        market = quote.get("marketPrice")
+        if market:
+            prices[finish] = round(market * 100)  # cents, matching domain.Money
+
+    # The TCGplayer product id behind each variant. Not a price, but it only ever
+    # arrives on this REST document, and it is the one handle on a card whose artwork
+    # TCGdex does not have -- so it is captured here rather than paid for again later.
+    products = sorted({
+        v["thirdParty"]["tcgplayer"]
+        for v in (card.get("variants_detailed") or [])
+        if isinstance(v, dict) and (v.get("thirdParty") or {}).get("tcgplayer")
+    })
+
+    if not prices and not products:
+        return None
+    out = {"id": card["id"]}
+    if prices:
+        out["usd_cents"] = prices
+    if products:
+        out["tcgplayer"] = products
+    return out
+
+
+def pull_prices(s: requests.Session, set_id: str):
+    """One set's volatile half. REST, one request per card -- there is no batched path."""
+    detail = get_json(s, f"{BASE}/{LANG}/sets/{set_id}")
+    if not detail:
+        print(f"  !! {set_id}: set document unavailable", file=sys.stderr)
+        return None
+
+    briefs = detail.get("cards") or []
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        full = list(pool.map(lambda b: get_json(s, f"{BASE}/{LANG}/cards/{b['id']}"), briefs))
+
+    prices = [p for card in full if card for p in [card_prices(card)] if p]
+
+    return {
         "setId": detail["id"],
         "source": "tcgplayer",
         "fetchedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "cards": prices,
     }
-    return set_doc, price_doc
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    g = ap.add_mutually_exclusive_group(required=True)
-    g.add_argument("--sets", nargs="+", help="explicit set ids")
-    g.add_argument("--first", type=int, help="first N sets by release date")
-    g.add_argument("--all", action="store_true")
+    half = ap.add_mutually_exclusive_group(required=True)
+    half.add_argument("--static", action="store_true", help="the immutable half (GraphQL)")
+    half.add_argument("--prices", action="store_true", help="the volatile half (REST)")
+
+    which = ap.add_mutually_exclusive_group(required=True)
+    which.add_argument("--sets", nargs="+", help="explicit set ids")
+    which.add_argument("--first", type=int, help="first N sets by release date")
+    which.add_argument("--all", action="store_true")
     args = ap.parse_args()
 
     s = session()
@@ -206,17 +331,26 @@ def main() -> None:
         encoding="utf-8",
     )
 
+    started = time.time()
     for n, set_id in enumerate(wanted, 1):
-        print(f"[{n}/{len(wanted)}] {set_id} ...", flush=True)
-        result = pull_set(s, set_id)
-        if not result:
-            continue
-        set_doc, price_doc = result
-        (OUT / "sets" / f"{set_id}.json").write_text(
-            json.dumps(set_doc, indent=1, ensure_ascii=False), encoding="utf-8")
-        (OUT / "prices" / f"{set_id}.json").write_text(
-            json.dumps(price_doc, indent=1, ensure_ascii=False), encoding="utf-8")
-        print(f"      {len(set_doc['cards'])} cards, {len(price_doc['cards'])} priced")
+        print(f"[{n}/{len(wanted)}] {set_id} ...", end=" ", flush=True)
+        if args.static:
+            doc = pull_static(s, set_id)
+            if not doc:
+                continue
+            (OUT / "sets" / f"{set_id}.json").write_text(
+                json.dumps(doc, indent=1, ensure_ascii=False), encoding="utf-8")
+            art = sum(1 for c in doc["cards"] if c.get("image"))
+            print(f"{len(doc['cards'])} cards, {art} with art")
+        else:
+            doc = pull_prices(s, set_id)
+            if not doc:
+                continue
+            (OUT / "prices" / f"{set_id}.json").write_text(
+                json.dumps(doc, indent=1, ensure_ascii=False), encoding="utf-8")
+            print(f"{len(doc['cards'])} priced")
+
+    print(f"\nDone in {time.time() - started:.0f}s. Now run audit.py.")
 
 
 if __name__ == "__main__":
