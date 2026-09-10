@@ -142,8 +142,22 @@ uninstalled and reinstalled by hand, and its data goes with it.
 ## Where the data comes from
 
 [TCGdex](https://tcgdex.dev) — no API key, art on a CDN at three sizes, and TCGplayer market
-prices in the same document as the card. `tools/catalog/pull_catalog.py` snapshots a subset
-into `catalog/` for offline work.
+prices in the same document as the card.
+
+The catalog itself is built and published by
+[Pocketful-Catalog](https://github.com/TronVonDoom/Pocketful-Catalog), which is a separate
+repository for reasons that are mostly about clocks. A set has not changed since the day it
+was printed, so asking TCGdex for Base Set on every launch pays a round trip for an answer
+that was already true in 1999 — and at any real number of users, one request per card per
+sync is a lot to ask of a free API that sets `Cache-Control: no-store` and so has nothing
+absorbing repeats. So it is fetched once, checked, and published as a release asset the app
+downloads and keeps. Card data moves when a set is printed, prices move nightly, and the app
+moves when someone writes a feature; putting three clocks in one repository means a price
+refresh dirties the app's history every night.
+
+That repository is also where the roughly 7% of cards TCGdex has no artwork for get filled
+in from a second and third source, and where the ones that cannot be filled are written down
+as holes with a reason rather than left to look like a failed download.
 
 Prices are whatever the catalog last quoted. Only USD, only TCGplayer: the same payload
 carries Cardmarket figures in euros, and quietly filing those under a `$` would be worse
