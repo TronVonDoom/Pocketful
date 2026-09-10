@@ -40,6 +40,7 @@ import app.pocketful.domain.variantBriefs
 import app.pocketful.data.CatalogSync
 import app.pocketful.data.RemoteSet
 import app.pocketful.data.rememberDocumentTransfer
+import app.pocketful.data.CatalogDownload
 import app.pocketful.data.rememberSaveStorage
 import app.pocketful.data.SearchHit
 import app.pocketful.state.AutosaveEffect
@@ -130,7 +131,11 @@ private sealed interface Editor {
 @Composable
 fun App() {
     val store = rememberCollectionStore()
-    val saver = rememberCollectionSaver(rememberSaveStorage())
+    val storage = rememberSaveStorage()
+    val saver = rememberCollectionSaver(storage)
+    // One per app, like the API client: it owns the downloaded catalog file and the stamp
+    // saying when the app last bothered to ask whether a new set exists.
+    val catalogDownload = remember(storage) { CatalogDownload(storage) }
     val transfer = rememberCollectionTransfer(rememberDocumentTransfer())
     val snapshot = store.snapshot
     val catalog = rememberTcgDex()
@@ -365,6 +370,8 @@ fun App() {
             saver = saver,
             catalogSync = catalogSync,
             browser = browser,
+            api = catalog,
+            catalogDownload = catalogDownload,
             imageLoader = SingletonImageLoader.get(imageContext),
             imageContext = imageContext,
         )

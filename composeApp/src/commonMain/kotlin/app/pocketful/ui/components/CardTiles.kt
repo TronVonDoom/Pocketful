@@ -65,6 +65,8 @@ fun CardArtTile(
     caption: String,
     artStem: String?,
     onClick: () -> Unit,
+    /** A finished image URL, for the cards TCGdex has no art stem for at all. */
+    artUrl: String? = null,
     modifier: Modifier = Modifier,
     type: PokemonType? = null,
     value: String? = null,
@@ -99,6 +101,7 @@ fun CardArtTile(
             Box(Modifier.fillMaxSize().clip(shape)) {
                 CardArtwork(
                     artStem = artStem,
+                    artUrl = artUrl,
                     type = type,
                     modifier = Modifier.fillMaxSize().alpha(if (ghosted) 0.34f else 1f),
                     holo = holo && !ghosted,
@@ -243,6 +246,7 @@ fun CatalogCardTile(
         name = hit.name,
         caption = caption,
         artStem = hit.artStem,
+        artUrl = hit.artUrl,
         value = value,
         valueColor = valueColor,
         badge = badge,

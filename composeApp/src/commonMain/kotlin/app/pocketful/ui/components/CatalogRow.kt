@@ -72,7 +72,12 @@ fun CatalogCardRow(
                 .clip(cardShape(width))
                 .border(1.dp, Color.White.copy(alpha = 0.12f), cardShape(width)),
         ) {
-            CardArtwork(artStem = hit.artStem, type = null, modifier = Modifier.fillMaxSize())
+            CardArtwork(
+                artStem = hit.artStem,
+                artUrl = hit.artUrl,
+                type = null,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {

@@ -44,6 +44,14 @@ enum class ArtSize { Thumb, Full }
 fun CardArtwork(
     artStem: String?,
     type: PokemonType?,
+    /**
+     * A finished image URL, used only when there is no [artStem].
+     *
+     * TCGdex has no artwork at all for about 7% of the catalog, and the published catalog
+     * fills what it can from a second source. Those are complete URLs on somebody else's
+     * CDN rather than stems, so they take no quality suffix and come in one size.
+     */
+    artUrl: String? = null,
     modifier: Modifier = Modifier,
     size: ArtSize = ArtSize.Thumb,
     /** Whether this printing is a foil, and so has light to catch. */
@@ -53,8 +61,8 @@ fun CardArtwork(
         Box(Modifier.fillMaxSize().background(type.artBrush()))
 
         val url = when (size) {
-            ArtSize.Thumb -> CardArt.thumb(artStem)
-            ArtSize.Full -> CardArt.full(artStem)
+            ArtSize.Thumb -> CardArt.thumb(artStem, artUrl)
+            ArtSize.Full -> CardArt.full(artStem, artUrl)
         }
         if (url != null) {
             AsyncImage(

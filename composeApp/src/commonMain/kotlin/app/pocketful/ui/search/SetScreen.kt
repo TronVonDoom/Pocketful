@@ -322,6 +322,7 @@ fun SetScreen(
                     name = hit.name,
                     caption = hit.collectorNumber,
                     artStem = hit.artStem,
+                    artUrl = hit.artUrl,
                     badge = when (standing) {
                         CardStanding.Have -> "HAVE"
                         CardStanding.Want -> "WANT"

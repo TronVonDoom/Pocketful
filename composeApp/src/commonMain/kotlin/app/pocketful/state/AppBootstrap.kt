@@ -6,7 +6,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import app.pocketful.data.CardArt
+import app.pocketful.data.CatalogDownload
 import app.pocketful.data.CatalogSync
+import app.pocketful.data.TcgDex
 import app.pocketful.data.nowEpochSeconds
 import coil3.ImageLoader
 import coil3.PlatformContext
@@ -84,6 +86,10 @@ class AppBootstrap {
     var usedCachedPrices by mutableStateOf(false)
         private set
 
+    /** What the catalog step managed, so the launch can say which app this is. */
+    var catalogOutcome by mutableStateOf(CatalogDownload.Outcome.Unavailable)
+        private set
+
     /**
      * Runs the sequence and returns the catalog delta for the caller to apply.
      *
@@ -96,6 +102,8 @@ class AppBootstrap {
         saver: CollectionSaver,
         catalogSync: CatalogSync,
         browser: CatalogBrowser,
+        api: TcgDex,
+        catalogDownload: CatalogDownload,
         imageLoader: ImageLoader,
         imageContext: PlatformContext,
     ): CatalogSync.Result? {
@@ -113,10 +121,24 @@ class AppBootstrap {
         restoredFromDisk = saver.restored
 
         withTimeoutOrNull(BUDGET) {
-            // 1. The catalog's shape. Everything else that reads a set name -- the sync
+            // 1. The published catalog, off disk or off GitHub.
+            //
+            //    Ahead of everything that reads the catalog, because it decides whether
+            //    any of those cost a round trip at all. Once it is in hand the set index,
+            //    every set's contents and every card's press runs are local, which is the
+            //    difference between a browse tab that opens and one that loads.
+            //
+            //    Failing here is survivable by design: TcgDex simply keeps asking the
+            //    network, which is the app that existed before this step.
+            step(CATALOG_FILE_STEP, 0.10f, 0.26f) {
+                api.usePublished(catalogDownload.ensure(nowEpochSeconds()))
+            }
+            catalogOutcome = catalogDownload.outcome
+
+            // 1b. The catalog's shape. Everything else that reads a set name -- the sync
             //    below, the search tab, every "Base Set · 102 cards" caption -- is served
             //    from the index this fills, so it goes first and the rest come free.
-            step(CATALOG, 0.10f, 0.30f) {
+            step(CATALOG, 0.26f, 0.32f) {
                 browser.load()
             }
 
@@ -132,10 +154,10 @@ class AppBootstrap {
             val cacheAge = cachedAt?.let { nowEpochSeconds() - it }
             usedCachedPrices = cacheAge != null && cacheAge in 0 until PRICE_TTL
             if (!usedCachedPrices) {
-                step(MATCHING, 0.30f, 0.80f) {
+                step(MATCHING, 0.32f, 0.80f) {
                     syncResult = catalogSync.run(store.snapshot, nowEpochSeconds()) { done, total ->
                         if (total > 0) {
-                            progress = 0.30f + 0.50f * (done.toFloat() / total)
+                            progress = 0.32f + 0.48f * (done.toFloat() / total)
                             status = "$MATCHING · $done of $total"
                         }
                     }
@@ -213,6 +235,10 @@ class AppBootstrap {
 
     /** The one line the loading screen leaves behind about what the launch achieved. */
     private fun describe(result: CatalogSync.Result?): String? = when {
+        // Said first, because it is the most interesting thing a launch can report: the
+        // app just stopped needing the network to browse.
+        catalogOutcome == CatalogDownload.Outcome.Downloaded -> "Card catalog downloaded"
+        catalogOutcome == CatalogDownload.Outcome.Refreshed -> "Card catalog updated"
         // Said out loud rather than passed off as a fetch. A launch that skipped the
         // network is the good case, and an app that silently reports nothing on its
         // fastest starts reads as one that quietly did less.
@@ -226,6 +252,7 @@ class AppBootstrap {
     private companion object {
         const val FIRST_STATUS = "Opening your collection"
         const val RESTORE = "Opening your collection"
+        const val CATALOG_FILE_STEP = "Getting the card catalog"
         const val CATALOG = "Reading the set catalog"
         const val MATCHING = "Matching your cards"
         const val ARTWORK = "Fetching artwork"

@@ -42,6 +42,27 @@ class TcgDex(
     private val client: HttpClient = defaultClient(),
     private val language: String = "en",
 ) {
+    /**
+     * The published catalog, once the launch has it.
+     *
+     * Held here rather than handed to every caller because this class already *is* the
+     * question "what cards exist". Every method below answers from this when it can and
+     * falls through to the network when it cannot, so CatalogBrowser, CardLookup and
+     * CatalogSync did not have to change at all -- and an install with no catalog yet is
+     * exactly the app that existed before it, rather than a broken one.
+     *
+     * Only the immutable half is here. Prices are not in this document and never will be,
+     * so [card] still goes to the network: it is the one call that has to.
+     */
+    private var published: PublishedCatalog? = null
+
+    /** Whether answers are coming off the device rather than the wire. */
+    val hasPublishedCatalog: Boolean get() = published != null
+
+    fun usePublished(catalog: PublishedCatalog?) {
+        published = catalog?.takeIf { it.isUsable }
+    }
+
     /** 218 sets, ~35KB, and it changes a few times a year. Fetched once per process. */
     private var setIndex: Map<String, RemoteSet>? = null
 
@@ -67,6 +88,11 @@ class TcgDex(
     suspend fun search(query: String, limit: Int = 30): List<SearchHit> {
         val trimmed = query.trim()
         if (trimmed.length < 2) return emptyList()
+
+        // Answered on the device when the catalog is here, which is both faster and
+        // honest: the old path returned nothing at all when the network was down, for a
+        // question the app had every card needed to answer.
+        published?.let { return it.search(trimmed, limit) }
 
         val response = client.get("$BASE/$language/cards") {
             parameter("name", trimmed)
@@ -106,6 +132,7 @@ class TcgDex(
 
     /** Every card in one set, as picker rows. One request, however big the set. */
     suspend fun cardsInSet(setId: String): List<SearchHit> {
+        published?.cardsInSet(setId)?.let { return it }
         val detail = setDetail(setId) ?: return emptyList()
         val total = detail.cardCount?.printed?.toString()
         val game = detail.game
@@ -143,6 +170,11 @@ class TcgDex(
      * of a bad afternoon.
      */
     suspend fun variantsInSet(setId: String): Map<String, RemoteVariants> {
+        // The whole reason the published catalog carries `variants`. This used to be a few
+        // dozen batched GraphQL requests and about six seconds per set, repeated every
+        // process because the answer only ever lived in memory. It is a printed fact that
+        // has not changed in years; now it is a map lookup.
+        published?.variantsInSet(setId)?.let { return it }
         setVariants[setId]?.let { return it }
 
         // Catalog-issued ids only. These are interpolated into a query string unescaped,
@@ -247,6 +279,13 @@ class TcgDex(
      */
     suspend fun catalogIndex(): CatalogIndex {
         catalogIndex?.let { return it }
+        published?.let { local ->
+            val index = local.index()
+            catalogIndex = index
+            setIndex = index.sets.associateBy { it.id }
+            seriesIndex = index.series
+            return index
+        }
         val fetched = graphCatalogIndex()?.takeIf { it.sets.isNotEmpty() } ?: restCatalogIndex()
         if (fetched.sets.isNotEmpty()) {
             catalogIndex = fetched
@@ -417,6 +456,18 @@ data class SearchHit(
     val setName: String,
     val setTotal: String?,
     val artStem: String?,
+    /**
+     * A finished image URL, for cards TCGdex has no artwork for at all.
+     *
+     * About 7% of the catalog has no TCGdex asset in any language -- whole Trainer Kits,
+     * Shining Fates' Shiny Vault, Ancient Mew -- and the published catalog resolves what
+     * it can from a second source. Those arrive as complete URLs rather than as a stem,
+     * because they are somebody else's CDN and do not take a quality suffix.
+     *
+     * Carried beside [artStem] rather than replacing it so that a card which later gains
+     * real TCGdex art uses it without anything having to notice.
+     */
+    val artUrl: String? = null,
     /**
      * Which game the card is from, resolved where the set was.
      *
