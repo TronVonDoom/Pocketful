@@ -58,6 +58,7 @@ fun CardThumb(
     ) {
         CardArtwork(
             artStem = brief.artUrl,
+        artUrl = brief.artAltUrl,
             type = brief.type,
             modifier = Modifier.fillMaxSize(),
         )

@@ -10,6 +10,8 @@ import app.pocketful.data.CatalogDownload
 import app.pocketful.data.CatalogSync
 import app.pocketful.data.TcgDex
 import app.pocketful.data.nowEpochSeconds
+import app.pocketful.domain.Printing
+import app.pocketful.domain.PrintingId
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.request.ImageRequest
@@ -90,6 +92,10 @@ class AppBootstrap {
     var catalogOutcome by mutableStateOf(CatalogDownload.Outcome.Unavailable)
         private set
 
+    /** How many printings gained artwork off the local catalog. Reported, not hidden. */
+    var artFilled by mutableStateOf(0)
+        private set
+
     /**
      * Runs the sequence and returns the catalog delta for the caller to apply.
      *
@@ -109,6 +115,7 @@ class AppBootstrap {
     ): CatalogSync.Result? {
         val started = TimeSource.Monotonic.markNow()
         var syncResult: CatalogSync.Result? = null
+        var artPrintings: Map<PrintingId, Printing> = emptyMap()
 
         // 0. The collection, off disk. Outside the budget below on purpose: that budget
         //    exists to stop a dead network from holding the launch, and this step does
@@ -135,10 +142,21 @@ class AppBootstrap {
             }
             catalogOutcome = catalogDownload.outcome
 
+            // 1a. Artwork for the collection that already exists, straight off the
+            //     catalog just loaded. No network, so it runs on every launch rather than
+            //     being rationed behind the price TTL below -- which is the difference
+            //     between a card gaining its picture now and gaining it in six hours, and
+            //     the only way the ~1,700 cards TCGdex has no artwork for ever get one,
+            //     since the document the price sync fetches does not know they exist.
+            step(ARTWORK_FILL, 0.26f, 0.30f) {
+                artPrintings = catalogSync.fillArtFromCatalog(store.snapshot)
+                artFilled = artPrintings.size
+            }
+
             // 1b. The catalog's shape. Everything else that reads a set name -- the sync
             //    below, the search tab, every "Base Set · 102 cards" caption -- is served
             //    from the index this fills, so it goes first and the rest come free.
-            step(CATALOG, 0.26f, 0.32f) {
+            step(CATALOG, 0.30f, 0.32f) {
                 browser.load()
             }
 
@@ -176,6 +194,17 @@ class AppBootstrap {
                     store.snapshot.printings.values.mapNotNull { it.imageUrl }
                 val urls = stems.distinct().mapNotNull(CardArt::thumb).take(ART_PREFETCH)
                 warmArtwork(urls, imageLoader, imageContext)
+            }
+        }
+
+        // Handed back rather than written from in here, for the reason CatalogSync.Result
+        // exists at all: the store is the only thing allowed to change the collection.
+        // The two deltas are merged rather than applied in turn, so the caller still makes
+        // exactly one write. Where both touched a printing the network sync wins, and they
+        // agree anyway -- both read the fallback artwork from the same published catalog.
+        if (artPrintings.isNotEmpty()) {
+            syncResult = (syncResult ?: CatalogSync.Result(matched = 0, unmatched = 0)).let {
+                it.copy(printings = artPrintings + it.printings)
             }
         }
 
@@ -237,6 +266,7 @@ class AppBootstrap {
     private fun describe(result: CatalogSync.Result?): String? = when {
         // Said first, because it is the most interesting thing a launch can report: the
         // app just stopped needing the network to browse.
+        artFilled > 0 -> "Found artwork for $artFilled cards"
         catalogOutcome == CatalogDownload.Outcome.Downloaded -> "Card catalog downloaded"
         catalogOutcome == CatalogDownload.Outcome.Refreshed -> "Card catalog updated"
         // Said out loud rather than passed off as a fetch. A launch that skipped the
@@ -253,6 +283,7 @@ class AppBootstrap {
         const val FIRST_STATUS = "Opening your collection"
         const val RESTORE = "Opening your collection"
         const val CATALOG_FILE_STEP = "Getting the card catalog"
+        const val ARTWORK_FILL = "Matching your cards to it"
         const val CATALOG = "Reading the set catalog"
         const val MATCHING = "Matching your cards"
         const val ARTWORK = "Fetching artwork"

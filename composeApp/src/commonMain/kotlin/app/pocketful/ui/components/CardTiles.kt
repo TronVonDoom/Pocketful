@@ -213,6 +213,7 @@ fun CardTile(
         name = brief.name,
         caption = caption,
         artStem = brief.artUrl,
+        artUrl = brief.artAltUrl,
         type = brief.type,
         value = value,
         valueColor = valueColor,

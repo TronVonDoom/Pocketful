@@ -328,7 +328,11 @@ fun App() {
             val card = lookup.fetch(hit).getOrNull()
             importingCard = false
             if (card != null) {
-                val variantId = store.importRemoteCard(card, Finish.NON_HOLO)
+                val variantId = store.importRemoteCard(
+                    card,
+                    Finish.NON_HOLO,
+                    published = catalog.publishedCard(card.id),
+                )
                 addingCard = store.snapshot.brief(variantId)
             }
         }

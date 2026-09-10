@@ -31,6 +31,8 @@ data class CardBrief(
      * ask the same [CardArt] helper for different sizes of the same string.
      */
     val artUrl: String? = null,
+    /** A finished URL, used when there is no [artUrl] stem. See Printing.imageAltUrl. */
+    val artAltUrl: String? = null,
 ) {
     /** Everything a text query should be able to hit, lowercased once. */
     val searchIndex: String = buildString {
@@ -68,6 +70,7 @@ fun CollectionSnapshot.brief(variantId: VariantId): CardBrief? {
         badge = variant.badge,
         marketValue = marketValue(variantId),
         artUrl = printing.imageUrl,
+        artAltUrl = printing.imageAltUrl,
     )
 }
 

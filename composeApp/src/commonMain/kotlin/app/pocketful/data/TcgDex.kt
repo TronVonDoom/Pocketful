@@ -63,6 +63,18 @@ class TcgDex(
         published = catalog?.takeIf { it.isUsable }
     }
 
+    /**
+     * The published record for one card, if the catalog is here and knows it.
+     *
+     * Offered so the sync can find the fallback artwork for a card already in someone's
+     * collection. The live [card] document cannot answer that -- TCGdex does not know
+     * that a card it has no picture of has one on TCGplayer.
+     */
+    fun publishedCard(id: String): PublishedCard? = published?.card(id)
+
+    /** The published set index, or null if the catalog is not here. Never touches the network. */
+    fun publishedSetIndex(): Map<String, RemoteSet>? = published?.setIndex()
+
     /** 218 sets, ~35KB, and it changes a few times a year. Fetched once per process. */
     private var setIndex: Map<String, RemoteSet>? = null
 

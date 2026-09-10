@@ -178,6 +178,7 @@ object CardImport {
                     illustrator = null,
                     releaseYear = null,
                     imageUrl = hit.artStem,
+                    imageAltUrl = hit.artUrl,
                 )
             }
             if (variantId !in variants) {
@@ -206,6 +207,14 @@ object CardImport {
         card: RemoteCard,
         edition: Edition = Edition.UNLIMITED,
         fetchedAtEpochSeconds: Long = 0L,
+        /**
+         * The same card in the published catalog, when there is one.
+         *
+         * Only [PublishedCard.imageAlt] is read from it. The live document is the better
+         * source for everything else -- it is the one carrying prices -- but it has no
+         * idea that a card TCGdex has no artwork for might have artwork somewhere else.
+         */
+        published: PublishedCard? = null,
     ): CollectionSnapshot {
         val cardId = cardId(card)
         val printingId = printingId(card)
@@ -231,6 +240,7 @@ object CardImport {
             illustrator = card.illustrator,
             releaseYear = null,
             imageUrl = card.image,
+            imageAltUrl = published?.imageAlt,
         )
 
         var variants = snapshot.variants

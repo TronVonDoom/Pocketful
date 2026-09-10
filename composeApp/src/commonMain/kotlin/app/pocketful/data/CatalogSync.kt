@@ -122,6 +122,13 @@ class CatalogSync(private val api: TcgDex) {
                     // Only ever fills gaps. A rarity someone corrected by hand is a
                     // deliberate act; the upstream value is not more true than it.
                     imageUrl = card.image ?: existing.imageUrl,
+                    // The reason a card already in a binder can gain artwork it never had.
+                    // TCGdex has no picture for about 7% of the catalog and no idea that
+                    // one exists elsewhere, so this comes from the published catalog
+                    // rather than from the document just fetched. Cards filed before this
+                    // field existed pick it up on the next sync, which is what makes the
+                    // fix reach collections that already exist.
+                    imageAltUrl = api.publishedCard(card.id)?.imageAlt ?: existing.imageAltUrl,
                     rarity = existing.rarity ?: card.rarity,
                     illustrator = existing.illustrator ?: card.illustrator,
                 )
@@ -145,6 +152,47 @@ class CatalogSync(private val api: TcgDex) {
             printings = printings,
             prices = prices,
         )
+    }
+
+    /**
+     * Fills in artwork from the published catalog, asking the network nothing at all.
+     *
+     * Separate from [run] because it has entirely different costs and therefore deserves
+     * entirely different rules about when it may happen. [run] is one HTTP request per
+     * card and is rationed behind a six-hour price TTL; this is a map lookup per card and
+     * can happen on every launch.
+     *
+     * That distinction is the whole point. Artwork for a card already in a binder used to
+     * arrive only as a side effect of re-pricing it, so a collection whose prices were
+     * fetched an hour ago could not gain a picture for another five -- and the 1,700
+     * cards TCGdex has no artwork for would never gain one at all, because the document
+     * [run] fetches does not know their pictures exist. This reaches both, immediately
+     * and offline.
+     *
+     * Only ever fills gaps, like [run]: a printing that already has art keeps it.
+     */
+    fun fillArtFromCatalog(snapshot: CollectionSnapshot): Map<PrintingId, Printing> {
+        val sets = api.publishedSetIndex() ?: return emptyMap()
+        val filled = mutableMapOf<PrintingId, Printing>()
+
+        for (printing in snapshot.printings.values) {
+            if (printing.imageUrl != null && printing.imageAltUrl != null) continue
+            val remoteId = remoteIdFor(printing, sets) ?: continue
+            val published = api.publishedCard(remoteId) ?: continue
+
+            // The same guard [run] uses, and for the same reason: `<set>-<number>` lands
+            // on the wrong card often enough to matter, and the wrong picture in someone's
+            // binder is worse than no picture.
+            val localName = snapshot.cards[printing.cardId]?.name
+            if (localName != null && !namesAgree(localName, published.name)) continue
+
+            val merged = printing.copy(
+                imageUrl = printing.imageUrl ?: published.image,
+                imageAltUrl = printing.imageAltUrl ?: published.imageAlt,
+            )
+            if (merged != printing) filled[printing.id] = merged
+        }
+        return filled
     }
 
     /**

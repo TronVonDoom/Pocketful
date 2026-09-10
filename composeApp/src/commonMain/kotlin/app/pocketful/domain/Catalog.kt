@@ -49,7 +49,21 @@ data class Printing(
     val rarity: String?,
     val illustrator: String?,
     val releaseYear: Int?,
+    /** A TCGdex stem, which takes a quality and a format appended. */
     val imageUrl: String? = null,
+    /**
+     * A finished image URL, for the cards TCGdex has no stem for at all.
+     *
+     * About 7% of the catalog has no TCGdex asset in any language -- whole Trainer Kits,
+     * Shining Fates' Shiny Vault, Ancient Mew -- and the published catalog resolves what
+     * it can from a second source. Those are complete URLs on somebody else's CDN, so
+     * they take no quality suffix and cannot be stored in [imageUrl] without every reader
+     * of that field having to guess which kind of string it holds.
+     *
+     * Kept beside rather than instead, so a card that later gains real TCGdex art starts
+     * using it without anything needing to notice.
+     */
+    val imageAltUrl: String? = null,
 ) {
     /** What is actually printed in the corner, and the most reliable OCR target. */
     val collectorNumber: String get() = setTotal?.let { "$number/$it" } ?: number

@@ -39,6 +39,26 @@ data class PublishedCatalog(
         sets.flatMap { set -> set.cards.map { set to it } }
     }
 
+    /**
+     * Every card by id, built on first use.
+     *
+     * Exists for the sync, which resolves a collection card by card and needs to know
+     * whether the one in someone's binder has fallback artwork. Twenty-three thousand
+     * entries, built once per process rather than scanned per card.
+     */
+    private val cardsById: Map<String, PublishedCard> by lazy {
+        buildMap { for (set in sets) for (card in set.cards) put(card.id, card) }
+    }
+
+    fun card(id: String): PublishedCard? = cardsById[id]
+
+    /** The set index in the shape the sync's id-resolution already expects. */
+    private val remoteSetsById: Map<String, RemoteSet> by lazy {
+        sets.associate { it.id to it.toRemoteSet() }
+    }
+
+    fun setIndex(): Map<String, RemoteSet> = remoteSetsById
+
     val cardCount: Int get() = sets.sumOf { it.cards.size }
 
     val isUsable: Boolean get() = sets.isNotEmpty() && schema == SCHEMA

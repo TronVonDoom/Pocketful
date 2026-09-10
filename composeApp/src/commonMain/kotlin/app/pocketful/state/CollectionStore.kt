@@ -7,6 +7,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import app.pocketful.data.CardImport
+import app.pocketful.data.PublishedCard
 import app.pocketful.data.CatalogSync
 import app.pocketful.data.RemoteCard
 import app.pocketful.data.SetPocket
@@ -700,8 +701,13 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
         card: RemoteCard,
         finish: Finish,
         edition: Edition = Edition.UNLIMITED,
+        /**
+         * The same card in the published catalog, when there is one. Read only for its
+         * fallback artwork, which the live document has no way of knowing about.
+         */
+        published: PublishedCard? = null,
     ): VariantId {
-        snapshot = CardImport.into(snapshot, card, edition)
+        snapshot = CardImport.into(snapshot, card, edition, published = published)
         val exact = CardImport.variantId(card, finish, edition)
         if (exact in snapshot.variants) return exact
         // The requested finish was not printed. Fall back to whichever one was, rather
