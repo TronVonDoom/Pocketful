@@ -52,7 +52,8 @@ class TcgDex(
      * exactly the app that existed before it, rather than a broken one.
      *
      * Only the immutable half is here. Prices are not in this document and never will be,
-     * so [card] still goes to the network: it is the one call that has to.
+     * so [card] still goes to the network -- but only for the price. It is the one call
+     * that has to, and it now asks for the one thing it actually needs.
      */
     private var published: PublishedCatalog? = null
 
@@ -135,12 +136,43 @@ class TcgDex(
         }
     }
 
-    /** Everything known about one card, including its prices. */
+    /**
+     * Everything known about one card, including its prices.
+     *
+     * The one call in this class that still has to touch the network, and now the only
+     * thing it goes for is the price. Every other field on a card document -- name,
+     * artwork, HP, types, flavour text, which press runs it exists in -- was settled when
+     * the card was printed and is already on the device, so the published record supplies
+     * the whole static half and the fetch supplies `pricing` alone.
+     *
+     * That split is what makes the three outcomes below worth spelling out. A card added
+     * with no connection used to arrive as nothing at all; now it arrives complete except
+     * for a price, which is the only part of it the device could not have known.
+     */
     suspend fun card(id: String): RemoteCard? {
+        val local = published?.remoteCard(id)
+        val live = fetchCard(id)
+
+        return when {
+            // The normal path. Static from disk, price from the wire, and the catalog
+            // wins every field they both carry -- it is the one that was audited.
+            local != null && live != null -> local.copy(pricing = live.pricing)
+            // Offline, or upstream having an afternoon. Complete but unpriced, which
+            // CardImport already handles: a card with no quote keeps whatever price the
+            // snapshot held, so this can never zero out a figure someone else fetched.
+            local != null -> local
+            // A card printed since the catalog was last built. Nothing local to prefer,
+            // so the live document is the whole answer, exactly as it always was.
+            else -> live
+        }
+    }
+
+    /** The live card document, or null if it could not be had. Never throws. */
+    private suspend fun fetchCard(id: String): RemoteCard? = runCatching {
         val response = client.get("$BASE/$language/cards/$id")
         if (!response.status.isSuccess()) return null
-        return runCatching { response.body<RemoteCard>() }.getOrNull()
-    }
+        response.body<RemoteCard>()
+    }.getOrNull()
 
     /** Every card in one set, as picker rows. One request, however big the set. */
     suspend fun cardsInSet(setId: String): List<SearchHit> {

@@ -60,7 +60,7 @@ with `sdk.dir=/path/to/Android/Sdk`.
 
 ```
 composeApp/src/commonMain/kotlin/app/pocketful/
-├── data/        the card catalog, prices, GitHub releases, saved and exported files
+├── data/        the card catalog, live prices, GitHub releases, saved and exported files
 ├── domain/      binders, containers, copies, money — no Compose in here
 ├── state/       the store, the catalog browser, the launch bootstrap
 └── ui/          screens, components, theme, icons
@@ -151,17 +151,25 @@ was printed, so asking TCGdex for Base Set on every launch pays a round trip for
 that was already true in 1999 — and at any real number of users, one request per card per
 sync is a lot to ask of a free API that sets `Cache-Control: no-store` and so has nothing
 absorbing repeats. So it is fetched once, checked, and published as a release asset the app
-downloads and keeps. Card data moves when a set is printed, prices move nightly, and the app
-moves when someone writes a feature; putting three clocks in one repository means a price
-refresh dirties the app's history every night.
+downloads and keeps. Card data moves when a set is printed and the app moves when someone
+writes a feature; two clocks in one repository means every catalog refresh dirties the
+app's history.
+
+That catalog carries what a card **is** — name, number, rarity, illustrator, artwork, HP,
+types, flavour text, press runs — and deliberately not what it is **worth**. Everything in
+it was settled the day the card was printed, which is what lets the app download it once
+and simply keep it, treating what it holds as correct until a *new set* exists. A price
+has a lifetime of about a day, and putting one in would give the whole file the shortest
+lifetime in it. So prices are fetched live, per card, and only for cards you own.
 
 That repository is also where the roughly 7% of cards TCGdex has no artwork for get filled
 in from a second and third source, and where the ones that cannot be filled are written down
 as holes with a reason rather than left to look like a failed download.
 
-Prices are whatever the catalog last quoted. Only USD, only TCGplayer: the same payload
-carries Cardmarket figures in euros, and quietly filing those under a `$` would be worse
-than showing nothing.
+Prices come straight from TCGdex on a six-hour TTL, and they are the only thing the app
+still needs the network for: adding a card offline gets you the card, complete, without a
+figure on it. Only USD, only TCGplayer — the same payload carries Cardmarket figures in
+euros, and quietly filing those under a `$` would be worse than showing nothing.
 
 TCGdex also serves Pokémon TCG Pocket out of that one index, filed as one more era beside
 Base and Scarlet & Violet. `data/CatalogGames.kt` is the seam that splits it back out,

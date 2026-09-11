@@ -16,13 +16,16 @@ import kotlinx.serialization.json.Json
  * real number of users, one request per card per sync is a great deal to ask of a free API
  * that sets `Cache-Control: no-store` and therefore has nothing absorbing repeats.
  *
- * 23,548 cards across 218 sets, 466KB on the wire. It carries only the ten fields the app
- * actually draws; attacks, abilities and the detailed variant breakdown stay in the build
- * repository where they cost nothing and a phone never downloads them.
+ * 23,548 cards across 218 sets, 1.1MB on the wire. It carries only the thirteen fields the
+ * app actually draws; attacks, abilities and the detailed variant breakdown stay in the
+ * build repository where they cost nothing and a phone never downloads them.
  *
- * Prices are deliberately absent. They are the one thing here that genuinely goes stale,
- * so they keep their own file, their own schedule and their own TTL -- putting them in
- * this document would make the immutable half expire at the speed of the volatile half.
+ * Prices are deliberately absent, and not merely postponed: this document answers what a
+ * card *is*, which was settled the day it was printed, and a price is what a card is
+ * *worth*, which is settled by whoever is quoting it today. Putting one in here would give
+ * the whole file the shortest lifetime in it -- "downloaded once and kept" would become
+ * "re-downloaded on a TTL". [TcgDex.card] fetches prices live instead, and that one call
+ * is now the only thing in the app that needs the network to add a card.
  */
 @Serializable
 data class PublishedCatalog(
@@ -40,17 +43,51 @@ data class PublishedCatalog(
     }
 
     /**
-     * Every card by id, built on first use.
+     * Every card by id, with the set it was printed in, built on first use.
      *
      * Exists for the sync, which resolves a collection card by card and needs to know
      * whether the one in someone's binder has fallback artwork. Twenty-three thousand
      * entries, built once per process rather than scanned per card.
+     *
+     * The set is kept alongside because [remoteCard] cannot answer without it: a card
+     * document carries the name and printed total of the set it belongs to, and a card
+     * record on its own knows only its own id.
      */
-    private val cardsById: Map<String, PublishedCard> by lazy {
-        buildMap { for (set in sets) for (card in set.cards) put(card.id, card) }
+    private val cardsById: Map<String, Pair<PublishedSet, PublishedCard>> by lazy {
+        buildMap { for (set in sets) for (card in set.cards) put(card.id, set to card) }
     }
 
-    fun card(id: String): PublishedCard? = cardsById[id]
+    fun card(id: String): PublishedCard? = cardsById[id]?.second
+
+    /**
+     * One card in the shape the live API would have returned it -- minus the prices.
+     *
+     * This is what lets [TcgDex.card] stop fetching static data. Every field the app draws
+     * off a card document is in this catalog, so the network is left with exactly one job:
+     * saying what the card is worth today. A card added with no connection at all still
+     * gets its name, artwork, HP, types, flavour text and press runs; it simply arrives
+     * without a price, which is the one part that was never ours to know offline.
+     */
+    fun remoteCard(id: String): RemoteCard? {
+        val (set, card) = cardsById[id] ?: return null
+        return RemoteCard(
+            id = card.id,
+            name = card.name,
+            localId = card.localId,
+            image = card.image,
+            rarity = card.rarity,
+            illustrator = card.illustrator,
+            category = card.category,
+            hp = card.hp,
+            types = card.types,
+            description = card.description,
+            set = RemoteSetRef(id = set.id, name = set.name, cardCount = set.cardCount),
+            variants = card.variants,
+            // Left null on purpose. A price is the one thing this document does not carry,
+            // and inventing an empty object here would read as "quoted at nothing".
+            pricing = null,
+        )
+    }
 
     /** The set index in the shape the sync's id-resolution already expects. */
     private val remoteSetsById: Map<String, RemoteSet> by lazy {
@@ -205,6 +242,18 @@ data class PublishedCard(
     val imageAlt: String? = null,
     val imageAltSource: String? = null,
     val variants: RemoteVariants? = null,
+    /**
+     * The printed facts the detail sheet and the collection rows draw.
+     *
+     * Added once it was clear the app was paying a live card fetch for them. [types] is
+     * the expensive one to be without -- it colours the chip on every row in a collection
+     * -- and [description] is the expensive one to carry, at roughly half the packed
+     * catalog by itself. Both are printed on the card, so both belong here rather than on
+     * the wire.
+     */
+    val hp: Int? = null,
+    val types: List<String> = emptyList(),
+    val description: String? = null,
 ) {
     fun toHit(set: PublishedSet, total: String?, game: TcgGame): SearchHit = SearchHit(
         id = id,
