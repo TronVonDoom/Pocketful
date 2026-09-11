@@ -97,6 +97,48 @@ data class CollectionSnapshot(
         return ValueSummary(market, basis, copies.size, wanted, toComplete)
     }
 
+    /**
+     * Drops catalog rows nothing in the collection points at any more.
+     *
+     * The catalog half of a snapshot is filled as a side effect of owning things: importing
+     * a card writes a Card, a Printing and a Variant per press run, and deleting the copy
+     * used to leave all three behind. They are invisible on every screen that lists what
+     * you *have* -- which is why the collection looked correctly empty -- but the pickers
+     * search the catalog half, so a deleted card went on turning up there as a match with
+     * no copy behind it, sitting above the real catalog row for the same card.
+     *
+     * What counts as referenced is deliberately the same rule the save file uses: a copy
+     * you own, or a pocket opened for one you want. Every variant of a kept printing
+     * survives even when only one is owned, because the finish picker offers "you own the
+     * reverse, did you mean the holo" by reading the others -- pruning to the owned press
+     * run alone would quietly remove that choice.
+     *
+     * Prices go with the variants they priced. They are re-fetchable, and a price for a
+     * card nobody owns is the definition of a row nothing points at.
+     */
+    fun pruneOrphanedCatalog(): CollectionSnapshot {
+        val referenced = buildSet {
+            copies.values.forEach { add(it.variantId) }
+            for (binder in binders) {
+                for (slot in binder.paddedSlots) if (slot is SlotContent.Wanted) add(slot.variantId)
+            }
+        }
+        val printingIds = referenced.mapNotNullTo(mutableSetOf()) { variants[it]?.printingId }
+        val keptVariants = variants.filterValues { it.printingId in printingIds }
+        // Nothing to do is the common case -- most edits are not deletions -- and returning
+        // the same instance keeps every `remember(snapshot)` in the UI from recomputing.
+        if (keptVariants.size == variants.size) return this
+
+        val keptPrintings = printings.filterKeys { it in printingIds }
+        val cardIds = keptPrintings.values.mapTo(mutableSetOf()) { it.cardId }
+        return copy(
+            cards = cards.filterKeys { it in cardIds },
+            printings = keptPrintings,
+            variants = keptVariants,
+            prices = prices.filterKeys { it in keptVariants },
+        )
+    }
+
     /** Copies that are not in a binder pocket and not in a container. */
     fun unfiledCopies(): List<Copy> {
         val filed = buildSet {

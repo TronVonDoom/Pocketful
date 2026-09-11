@@ -667,6 +667,17 @@ data class RemoteCard(
     val description: String? = null,
     val set: RemoteSetRef? = null,
     val variants: RemoteVariants? = null,
+    /**
+     * Artwork from a fallback source, for the cards TCGdex has no picture of.
+     *
+     * Never sent by the API -- it is filled in by [PublishedCatalog.remoteCard] from the
+     * published catalog, which is the only thing that knows a card with no TCGdex asset
+     * has a product photo somewhere else. It rides on the card rather than beside it
+     * because the alternative was exactly that: a second argument every caller had to
+     * remember to fetch and pass, and the one that forgot filed a picture-less card into
+     * a binder while the search row it was picked from showed the art perfectly well.
+     */
+    val imageAlt: String? = null,
     // Left as a raw object: TCGplayer keys its prices by finish name, and which keys
     // exist differs card to card ("holofoil", "reverseHolofoil", "1stEditionNormal"...).
     // A typed class here would have to enumerate every finish the hobby has ever had.

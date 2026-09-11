@@ -83,6 +83,9 @@ data class PublishedCatalog(
             description = card.description,
             set = RemoteSetRef(id = set.id, name = set.name, cardCount = set.cardCount),
             variants = card.variants,
+            // The whole reason a card with no TCGdex asset can still be drawn. About 7% of
+            // the catalog has none, and for those this is the only artwork there is.
+            imageAlt = card.imageAlt,
             // Left null on purpose. A price is the one thing this document does not carry,
             // and inventing an empty object here would read as "quoted at nothing".
             pricing = null,

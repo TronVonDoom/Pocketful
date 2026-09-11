@@ -7,7 +7,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import app.pocketful.data.CardImport
-import app.pocketful.data.PublishedCard
 import app.pocketful.data.CatalogSync
 import app.pocketful.data.RemoteCard
 import app.pocketful.data.SetPocket
@@ -280,6 +279,7 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
         val withoutBinder = snapshot.copy(binders = snapshot.binders.filterNot { it.id == id })
         snapshot = (if (deleteCards) withoutBinder.copy(copies = withoutBinder.copies - inside) else withoutBinder)
             .reconcileLocations()
+            .pruneOrphanedCatalog()
     }
 
     /** How many cards [deleteBinder] would take with it, for the sentence that asks. */
@@ -339,6 +339,7 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
             if (deleteCards) withoutContainer.copy(copies = withoutContainer.copies - inside)
             else withoutContainer
             ).reconcileLocations()
+            .pruneOrphanedCatalog()
     }
 
     /** How many cards [deleteContainer] would take with it. */
@@ -644,6 +645,10 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
         snapshot = snapshot
             .unfile(copyId)
             .let { it.copy(copies = it.copies - copyId) }
+            // The catalog rows go with it when they were only there for this card. A
+            // delete that left them behind meant the card kept turning up in the pickers
+            // afterwards, which reads as the app not having deleted it.
+            .pruneOrphanedCatalog()
     }
 
     /**
@@ -659,7 +664,9 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
         val doomed = copyIds.toSet()
         var next = snapshot
         for (copyId in doomed) next = next.unfile(copyId)
-        snapshot = next.copy(copies = next.copies - doomed).reconcileLocations()
+        snapshot = next.copy(copies = next.copies - doomed)
+            .reconcileLocations()
+            .pruneOrphanedCatalog()
     }
 
     fun setForTrade(copyIds: Collection<CopyId>, forTrade: Boolean) {
@@ -701,13 +708,8 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
         card: RemoteCard,
         finish: Finish,
         edition: Edition = Edition.UNLIMITED,
-        /**
-         * The same card in the published catalog, when there is one. Read only for its
-         * fallback artwork, which the live document has no way of knowing about.
-         */
-        published: PublishedCard? = null,
     ): VariantId {
-        snapshot = CardImport.into(snapshot, card, edition, published = published)
+        snapshot = CardImport.into(snapshot, card, edition)
         val exact = CardImport.variantId(card, finish, edition)
         if (exact in snapshot.variants) return exact
         // The requested finish was not printed. Fall back to whichever one was, rather

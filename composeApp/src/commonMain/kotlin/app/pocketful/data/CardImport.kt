@@ -207,20 +207,10 @@ object CardImport {
         card: RemoteCard,
         edition: Edition = Edition.UNLIMITED,
         fetchedAtEpochSeconds: Long = 0L,
-        /**
-         * The same card in the published catalog, when there is one.
-         *
-         * Only [PublishedCard.imageAlt] is read from it, and only because it is the one
-         * field the card document cannot carry: TCGdex has no idea that a card it has no
-         * artwork for might have artwork somewhere else. Everything else is already in
-         * [card] -- [TcgDex.card] now builds that from this same catalog and asks the
-         * network for nothing but the price -- so reading it twice here would be reading
-         * the same document by two routes.
-         */
-        published: PublishedCard? = null,
     ): CollectionSnapshot {
         val cardId = cardId(card)
         val printingId = printingId(card)
+        val existing = snapshot.printings[printingId]
         val firstEdition = edition == Edition.FIRST_EDITION || card.variants?.firstEdition == true
 
         val domainCard = Card(
@@ -242,8 +232,12 @@ object CardImport {
             rarity = card.rarity,
             illustrator = card.illustrator,
             releaseYear = null,
-            imageUrl = card.image,
-            imageAltUrl = published?.imageAlt,
+            // Both halves fall back to what the printing already had rather than
+            // overwriting it with nothing. Re-importing is how a card gets its prices
+            // refreshed, and a refresh that arrived without artwork used to blank the
+            // picture the catalog had found for it -- the card went grey on re-add.
+            imageUrl = card.image ?: existing?.imageUrl,
+            imageAltUrl = card.imageAlt ?: existing?.imageAltUrl,
         )
 
         var variants = snapshot.variants
