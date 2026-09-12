@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import app.pocketful.domain.marketTotal
 import app.pocketful.domain.CollectionSnapshot
 import app.pocketful.domain.CopyId
 import app.pocketful.domain.CopyRow
@@ -34,6 +35,7 @@ import app.pocketful.domain.Money
 import app.pocketful.domain.WantRow
 import app.pocketful.domain.copyRows
 import app.pocketful.domain.wantRows
+import app.pocketful.state.displayOrDash
 import app.pocketful.state.display
 import app.pocketful.state.displayOrNull
 import app.pocketful.ui.components.CardTile
@@ -113,7 +115,7 @@ fun CardsScreen(
             .sortedByDescending { it.targetPrice.cents }
     }
 
-    val ownedValue = remember(owned) { owned.fold(Money.ZERO) { acc, row -> acc + row.value } }
+    val ownedValue = remember(owned, snapshot) { owned.marketTotal(snapshot) }
     val unfiledCount = remember(owned) { owned.count { it.copy.location == Location.Unassigned } }
     val tradeCount = remember(owned) { owned.count { it.copy.forTrade } }
 
@@ -133,8 +135,8 @@ fun CardsScreen(
                     eyebrow = "Your cards",
                     title = "Every card",
                     subtitle = "Everything you own, wherever it is filed",
-                    headline = ownedValue.format(),
-                    headlineCaption = "at market",
+                    headline = ownedValue.amount.displayOrDash(ownedValue.currency),
+                    headlineCaption = ownedValue.alsoLabel?.let { "at market · also $it" } ?: "at market",
                     leading = { CircleIconButton(AppIcons.ChevronLeft, "Back", onBack, size = 34.dp) },
                     stats = buildList {
                         add(Stat("${owned.size}", "owned"))

@@ -16,12 +16,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import app.pocketful.domain.marketTotal
 import app.pocketful.domain.CollectionSnapshot
 import app.pocketful.domain.CopyRow
 import app.pocketful.domain.Money
 import app.pocketful.domain.WantRow
 import app.pocketful.domain.tradeRows
 import app.pocketful.domain.wantRows
+import app.pocketful.state.displayOrDash
 import app.pocketful.state.display
 import app.pocketful.state.displayOrNull
 import app.pocketful.ui.components.CardTile
@@ -62,9 +64,9 @@ fun TradeScreen(
         snapshot.wantRows().sortedByDescending { it.targetPrice.cents }
     }
 
-    val offerValue = remember(offers) { offers.fold(Money.ZERO) { acc, row -> acc + row.value } }
+    val offerValue = remember(offers, snapshot) { offers.marketTotal(snapshot) }
     val wantValue = remember(wants) { wants.fold(Money.ZERO) { acc, row -> acc + row.targetPrice } }
-    val difference = remember(offerValue, wantValue) { offerValue - wantValue }
+    val difference = remember(offerValue, wantValue) { offerValue.amount - wantValue }
 
     val listState = rememberLazyListState()
 
@@ -82,7 +84,7 @@ fun TradeScreen(
                     eyebrow = "Trade",
                     title = "On the table",
                     subtitle = "What you can give, and what you want back",
-                    headline = offerValue.format(),
+                    headline = offerValue.amount.displayOrDash(offerValue.currency),
                     headlineCaption = "offered",
                     leading = { CircleIconButton(AppIcons.ChevronLeft, "Back", onBack, size = 34.dp) },
                     stats = buildList {

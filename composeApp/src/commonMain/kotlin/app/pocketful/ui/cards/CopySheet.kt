@@ -125,7 +125,7 @@ fun CopySheet(
                 if (gain != null) {
                     DetailRow(
                         label = "Unrealised",
-                        value = (if (gain.cents >= 0) "+" else "") + gain.format(),
+                        value = (if (gain.cents >= 0) "+" else "") + gain.display(),
                         valueColor = if (gain.cents >= 0) Ink.Gain else Ink.Loss,
                     )
                 }

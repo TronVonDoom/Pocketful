@@ -153,6 +153,43 @@ fun List<CardBrief>.search(query: String, limit: Int = 60): List<CardBrief> {
  * [holderName] is whatever is holding it -- a binder or a container -- resolved here so
  * that the card list never has to look up two different collections to caption a row.
  */
+/**
+ * A market total for an arbitrary handful of cards, struck per currency.
+ *
+ * The same rule [ValueSummary] follows, in the shape a screen needs when it is totalling a
+ * list it assembled itself rather than a binder or a container -- the All Cards screen and
+ * the trade table both do. Folding `value` across the rows was the obvious thing to write
+ * and it adds euros to dollars, which is the one arithmetic error this app must not make.
+ */
+data class MarketTotal(
+    val amount: Money,
+    val currency: Currency = Currency.USD,
+    val alsoIn: Map<Currency, Money> = emptyMap(),
+) {
+    /** "also EUR 39.55" -- what this total does not cover. */
+    val alsoLabel: String?
+        get() = alsoIn.takeIf { it.isNotEmpty() }
+            ?.entries
+            ?.sortedByDescending { it.value.cents }
+            ?.joinToString(" · ") { it.value.format(currency = it.key) }
+}
+
+/** Totals rows the way a summary totals a binder: by currency, never across them. */
+fun List<CopyRow>.marketTotal(snapshot: CollectionSnapshot): MarketTotal {
+    val totals = mutableMapOf<Currency, Long>()
+    for (row in this) {
+        if (row.value.isZero) continue
+        val currency = snapshot.currencyOf(row.copy.variantId)
+        totals[currency] = (totals[currency] ?: 0L) + row.value.cents
+    }
+    val leading = totals.maxByOrNull { it.value } ?: return MarketTotal(Money.ZERO)
+    return MarketTotal(
+        amount = Money(leading.value),
+        currency = leading.key,
+        alsoIn = totals.filterKeys { it != leading.key }.mapValues { Money(it.value) },
+    )
+}
+
 data class CopyRow(
     val copy: Copy,
     val brief: CardBrief,

@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import app.pocketful.domain.Currency
 import app.pocketful.domain.Binder
 import app.pocketful.domain.BinderId
 import app.pocketful.domain.CardBrief
@@ -373,20 +374,26 @@ private fun ColumnScope.SlotDetailStep(
 
             val value = snapshot.valueOf(copy)
             val paid = copy.acquiredPrice
-            val gain = paid?.let { value - it }
+            // Only against a price in the same money. What was paid is a figure typed in
+            // the user's own currency; subtracting it from a euro quote is not a quantity.
+            val gain = paid?.takeIf { brief.currency == Currency.USD }?.let { value - it }
 
             SheetBody {
-                CardHero(brief = brief, valueLabel = value.format(), caption = brief.finish.label)
+                CardHero(
+                    brief = brief,
+                    valueLabel = value.displayOrDash(brief.currency),
+                    caption = brief.finish.label,
+                )
 
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     DetailRow("Condition", copy.condition.label)
                     copy.grade?.let { DetailRow("Grade", it.label + (it.certNumber?.let { c -> " · $c" } ?: "")) }
-                    DetailRow("Market value", value.format())
-                    DetailRow("Paid", paid?.format() ?: "not recorded")
+                    DetailRow("Market value", value.displayOrDash(brief.currency))
+                    DetailRow("Paid", paid?.display() ?: "not recorded")
                     if (gain != null) {
                         DetailRow(
                             label = "Unrealised",
-                            value = (if (gain.cents >= 0) "+" else "") + gain.format(),
+                            value = (if (gain.cents >= 0) "+" else "") + gain.display(),
                             valueColor = if (gain.cents >= 0) Ink.Gain else Ink.Loss,
                         )
                     }
@@ -451,7 +458,11 @@ private fun ColumnScope.SlotDetailStep(
 
             val target = slot.targetPrice ?: brief.marketValue
             SheetBody {
-                CardHero(brief = brief, valueLabel = target.format(), caption = "Hunting")
+                CardHero(
+                    brief = brief,
+                    valueLabel = target.displayOrDash(brief.currency),
+                    caption = "Hunting",
+                )
 
                 VariantPicker(
                     variants = snapshot.variantBriefs(slot.variantId),
