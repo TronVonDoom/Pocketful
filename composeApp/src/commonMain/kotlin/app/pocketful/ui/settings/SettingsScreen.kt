@@ -373,15 +373,22 @@ fun SettingsScreen(
                         // the number on this row is the number the updater compares
                         // against a release tag and cannot drift from it.
                         DetailRow("Pocketful", AppVersion.label)
-                        DetailRow("Price data", if (priced > 0) "TCGplayer via TCGdex" else "none yet")
+                        DetailRow(
+                            label = "Price data",
+                            value = if (priced > 0) "TCGdex" else "none yet",
+                            caption = if (priced > 0) "TCGplayer · Cardmarket" else null,
+                        )
                         DetailRow("Storage", "on this device")
                     }
                     Spacer(Modifier.height(14.dp))
                     Text(
                         text = "Prices are whatever the catalog last quoted, and only for cards it " +
-                            "could match. Your collection is written to this device as you change " +
-                            "it, and lives nowhere else -- so a backup is the only copy of it that " +
-                            "survives losing the phone.",
+                            "could match. TCGplayer is used where it has a figure; where it has none " +
+                            "-- most promos, most Japanese printings -- the Cardmarket price is " +
+                            "converted at the European Central Bank's daily rate, and a card that " +
+                            "was converted says so. Your collection is written to this device as you " +
+                            "change it, and lives nowhere else -- so a backup is the only copy of it " +
+                            "that survives losing the phone.",
                         color = Ink.TextTertiary,
                         style = MaterialTheme.typography.bodySmall,
                     )

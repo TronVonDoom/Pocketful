@@ -94,5 +94,14 @@ data class PriceSnapshot(
      * default the true answer rather than a convenient one.
      */
     val currency: Currency = Currency.USD,
+    /**
+     * What this figure was before it was converted, when it was.
+     *
+     * Kept so a card can say "converted from EUR 36.67" instead of presenting an
+     * approximation as though somebody could go and look it up. Null on the ordinary case
+     * where the quote was already in [currency].
+     */
+    val quotedMarket: Money? = null,
+    val quotedCurrency: Currency? = null,
     val fetchedAtEpochSeconds: Long,
 )

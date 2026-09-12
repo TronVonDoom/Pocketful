@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -73,6 +74,19 @@ fun CardArtTile(
     valueColor: Color = Ink.Gold,
     badge: String? = null,
     badgeColor: Color = Ink.TextSecondary,
+    /**
+     * How many of this card you have.
+     *
+     * Its own mark rather than a word in [badge], because a quantity and a status are
+     * different kinds of fact and were sharing one slot: a tile could say "OWN 2" or it
+     * could say "TRADE", never both, and the two read as the same kind of label while
+     * meaning entirely different things. A count now has its own corner and its own shape
+     * -- a disc, so it reads as a tally at a glance the way a notification count does.
+     *
+     * Null or 1 draws nothing. A tile in a list of cards you own does not need a badge on
+     * every single one saying "1"; the number is only news when there is more than one.
+     */
+    count: Int? = null,
     /** Its place in a ranking, drawn in the corner an ordered grid needs one. */
     rank: Int? = null,
     /** Renders the art as a ghost: a card the user does not own yet. */
@@ -119,12 +133,23 @@ fun CardArtTile(
                     )
                 }
 
+                // Top-right is the tile's tally corner: the selection tick while a
+                // selection is running, the quantity otherwise. Both answer "how many of
+                // this am I dealing with", and a tick over a count would be two answers.
                 when {
                     selected -> TileMark(
                         Modifier.align(Alignment.TopEnd).padding(5.dp),
                     ) {
                         Icon(AppIcons.Check, "Selected", Modifier.size(12.dp), tint = Color.White)
                     }
+
+                    (count ?: 0) > 1 -> CountBadge(
+                        count = count!!,
+                        modifier = Modifier.align(Alignment.TopEnd).padding(5.dp),
+                    )
+                }
+
+                when {
 
                     // Dark plate, gold numeral -- the same treatment as the price chip
                     // rather than a solid gold disc. Card borders are yellow more often
@@ -145,15 +170,16 @@ fun CardArtTile(
                     )
                 }
 
-                // Both corners can be occupied at once when a ranked card is also
-                // flagged, so the badge falls back to the opposite corner rather than
-                // being dropped.
+                // A ranked tile that is also flagged puts the flag at the bottom-left,
+                // not the top-right: that corner belongs to the count now, and a badge
+                // that sometimes appears there and sometimes does not is precisely the
+                // inconsistency this corner grammar exists to remove.
                 if (rank != null && badge != null) {
                     ArtChip(
                         text = badge,
                         foreground = Color.White,
                         background = badgeColor.copy(alpha = 0.92f),
-                        modifier = Modifier.align(Alignment.TopEnd).padding(5.dp),
+                        modifier = Modifier.align(Alignment.BottomStart).padding(5.dp),
                     )
                 }
 
@@ -204,6 +230,7 @@ fun CardTile(
     valueColor: Color = Ink.Gold,
     badge: String? = null,
     badgeColor: Color = Ink.TextSecondary,
+    count: Int? = null,
     rank: Int? = null,
     ghosted: Boolean = false,
     selected: Boolean = false,
@@ -219,6 +246,7 @@ fun CardTile(
         valueColor = valueColor,
         badge = badge,
         badgeColor = badgeColor,
+        count = count,
         rank = rank,
         ghosted = ghosted,
         holo = brief.finish != Finish.NON_HOLO,
@@ -238,6 +266,7 @@ fun CatalogCardTile(
     caption: String = hit.collectorNumber,
     badge: String? = null,
     badgeColor: Color = Ink.TextSecondary,
+    count: Int? = null,
     value: String? = null,
     valueColor: Color = Ink.Gold,
     ghosted: Boolean = false,
@@ -252,6 +281,7 @@ fun CatalogCardTile(
         valueColor = valueColor,
         badge = badge,
         badgeColor = badgeColor,
+        count = count,
         ghosted = ghosted,
         enabled = enabled,
         onClick = onClick,
@@ -277,6 +307,37 @@ private fun ArtChip(
             text = text,
             color = foreground,
             fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+        )
+    }
+}
+
+/**
+ * A quantity, as a disc.
+ *
+ * Round at one digit and stretching to a pill at two or more, which is the whole of the
+ * shape rule: a circle is the right frame for a single glyph and the wrong one for three,
+ * so the minimum size holds the circle and the padding takes over once the text outgrows
+ * it. Same treatment as the price chip -- dark plate, no colour of its own -- because a
+ * count is a fact about the card rather than a status worth a hue.
+ */
+@Composable
+private fun CountBadge(count: Int, modifier: Modifier = Modifier) {
+    val text = if (count > 99) "99+" else "$count"
+    Box(
+        modifier
+            .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
+            .clip(AppShape.Pill)
+            .background(Color.Black.copy(alpha = 0.74f))
+            .border(1.dp, Color.White.copy(alpha = 0.18f), AppShape.Pill)
+            .padding(horizontal = if (text.length > 1) 5.dp else 0.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            color = Color.White,
+            fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
         )

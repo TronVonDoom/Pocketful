@@ -373,7 +373,10 @@ private fun BinderTile(
         gainLabel = summary.gainPercentLabel,
         gainPositive = summary.unrealizedGain.cents >= 0,
         fillFraction = if (binder.capacity == 0) 0f else summary.ownedCount.toFloat() / binder.capacity,
-        badge = if (summary.wantedCount > 0) "${summary.wantedCount} Wanted" else null,
+        // Uppercase like every other status label in the app. "3 Wanted" was the only
+        // badge anywhere written in sentence case, which made it read as a caption that
+        // had wandered into a badge rather than as the same kind of mark.
+        badge = if (summary.wantedCount > 0) "${summary.wantedCount} WANTED" else null,
         badgeColor = Ink.Wanted,
         onClick = onClick,
         onLongClick = onLongClick,

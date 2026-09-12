@@ -3,11 +3,16 @@ package app.pocketful.ui.home
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -25,6 +30,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.pocketful.domain.Currency
 import app.pocketful.domain.Binder
 import app.pocketful.domain.CollectionSnapshot
 import app.pocketful.domain.Container
@@ -37,18 +43,15 @@ import app.pocketful.domain.wantRows
 import app.pocketful.state.display
 import app.pocketful.state.displayOrDash
 import app.pocketful.state.displayOrNull
-import app.pocketful.ui.components.AddTile
 import app.pocketful.ui.components.AppButton
 import app.pocketful.ui.components.CardTile
 import app.pocketful.ui.components.EmptyState
 import app.pocketful.ui.components.HeaderAction
 import app.pocketful.ui.components.Panel
-import app.pocketful.ui.components.ProgressTrack
 import app.pocketful.ui.components.ScreenBackdrop
 import app.pocketful.ui.components.ScreenHeader
 import app.pocketful.ui.components.SectionHeader
 import app.pocketful.ui.components.Stat
-import app.pocketful.ui.components.TilePair
 import app.pocketful.ui.components.tileRows
 import app.pocketful.ui.components.tappable
 import app.pocketful.ui.nav.islandBottomInset
@@ -77,8 +80,14 @@ fun HomeScreen(
     snapshot: CollectionSnapshot,
     onOpenBinder: (Binder) -> Unit,
     onOpenContainer: (Container) -> Unit,
-    onCreateBinder: () -> Unit,
-    onCreateContainer: () -> Unit,
+    /**
+     * Into Collections, which is where storage is made and managed.
+     *
+     * Home used to carry its own "New binder" and "New container" tiles. Two screens
+     * offering the same creation is two places to keep in step, and the one that owns the
+     * thing should be the one that makes it -- so Home links there instead.
+     */
+    onOpenCollections: () -> Unit,
     onOpenCards: () -> Unit,
     onOpenTrade: () -> Unit,
     onOpenCopy: (CopyRow) -> Unit,
@@ -97,7 +106,11 @@ fun HomeScreen(
     // Two apiece, not four. These are shortcuts into screens that hold the whole list,
     // and at art-tile size four of them is two full rows -- which stops being a glance at
     // what is outstanding and becomes a second copy of the want list.
-    val trades = remember(snapshot) { snapshot.tradeRows().take(2) }
+    // A shelf rather than two tiles, so it holds a real stack. Capped all the same: this
+    // is a glance at what is on the table with a way through to the screen that owns it,
+    // and a scroller with ninety cards in it is the trade screen wearing a disguise.
+    val trades = remember(snapshot) { snapshot.tradeRows().take(TRADE_SHELF_MAX) }
+    val tradeTotal = remember(snapshot) { snapshot.tradeRows().size }
     val wants = remember(snapshot) {
         snapshot.wantRows().sortedByDescending { it.targetPrice.cents }.take(2)
     }
@@ -112,7 +125,12 @@ fun HomeScreen(
                 name = binder.name,
                 tint = Color(binder.spineColor),
                 value = summary.marketValue,
+                currency = summary.currency,
                 countLabel = "${binder.layout.fullLabel} · ${summary.ownedCount}/${binder.capacity}",
+                countShort = "${summary.ownedCount}/${binder.capacity}",
+                fillFraction = if (binder.capacity == 0) null
+                else summary.ownedCount.toFloat() / binder.capacity,
+                wantedCount = summary.wantedCount,
                 onOpen = { onOpenBinder(binder) },
             )
         }
@@ -122,7 +140,11 @@ fun HomeScreen(
                 name = container.name,
                 tint = Color(container.color),
                 value = summary.marketValue,
+                currency = summary.currency,
                 countLabel = "${container.kind.label.lowercase()} · ${summary.ownedCount} cards",
+                countShort = "${summary.ownedCount} ${if (summary.ownedCount == 1) "card" else "cards"}",
+                fillFraction = null,
+                wantedCount = 0,
                 onOpen = { onOpenContainer(container) },
             )
         }
@@ -208,38 +230,34 @@ fun HomeScreen(
                         title = "Nothing stored yet",
                         message = "Start with a binder for the set you are working on, " +
                             "or a box for everything else.",
-                        action = { AppButton("New binder", onCreateBinder, icon = AppIcons.Plus) },
+                        // Sends you to the screen that makes them rather than making one
+                        // here. An empty app still needs a way forward, and that way is
+                        // the same one it will be tomorrow when Home is full.
+                        action = {
+                            AppButton("Open collections", onOpenCollections, icon = AppIcons.Collections)
+                        },
                     )
                 }
             } else {
-                item { SectionHeader("Where the value sits", Modifier.padding(top = 2.dp, bottom = 2.dp)) }
                 item {
-                    val peak = places.firstOrNull()?.value?.cents ?: 0L
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        places.forEach { place ->
-                            StorageValueBar(
-                                place = place,
-                                fraction = if (peak <= 0L) 0f else place.value.cents.toFloat() / peak,
-                            )
-                        }
+                    SectionHeader("Where the value sits", Modifier.padding(top = 2.dp, bottom = 2.dp)) {
+                        LinkText("All", onOpenCollections)
                     }
                 }
-            }
-
-            item {
-                TilePair(Modifier.padding(top = 4.dp)) {
-                    AddTile(
-                        icon = AppIcons.Plus,
-                        label = "New binder",
-                        onClick = onCreateBinder,
-                        modifier = Modifier.weight(1f),
-                    )
-                    AddTile(
-                        icon = AppIcons.Plus,
-                        label = "New container",
-                        onClick = onCreateContainer,
-                        modifier = Modifier.weight(1f),
-                    )
+                item {
+                    // Three across, and scrolling once there are more than three. Stacked
+                    // full-width rows gave every binder the same visual weight as the
+                    // portfolio above it and pushed the rest of the screen below the fold
+                    // at four binders; a shelf holds any number in one band of height.
+                    BoxWithConstraints {
+                        val gap = 9.dp
+                        val tileWidth = (maxWidth - gap * 2) / 3
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                            items(places, key = { it.name + it.countLabel }) { place ->
+                                StorageStatTile(place, Modifier.width(tileWidth))
+                            }
+                        }
+                    }
                 }
             }
 
@@ -271,20 +289,31 @@ fun HomeScreen(
             if (trades.isNotEmpty()) {
                 item {
                     SectionHeader("Up for trade", Modifier.padding(top = 10.dp, bottom = 2.dp)) {
-                        LinkText("All", onOpenTrade)
+                        LinkText(if (tradeTotal > trades.size) "View all · $tradeTotal" else "View all", onOpenTrade)
                     }
                 }
-                tileRows(items = trades, keyPrefix = "trade", key = { it.copy.id.value }) { row ->
-                    CardTile(
-                        brief = row.brief,
-                        caption = row.locationLabel,
-                        value = row.value.displayOrNull(),
-                        valueColor = Ink.Gain,
-                        badge = "TRADE",
-                        badgeColor = Ink.Gain,
-                        onClick = { onOpenCopy(row) },
-                        modifier = Modifier.weight(1f),
-                    )
+                item {
+                    // Four across, which is what fits a phone at a size where the art is
+                    // still the card and not a swatch. More than four scrolls, and the
+                    // partial fifth at the edge is what says so.
+                    BoxWithConstraints {
+                        val gap = 8.dp
+                        val tileWidth = (maxWidth - gap * 3) / 4
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                            items(trades, key = { it.copy.id.value }) { row ->
+                                CardTile(
+                                    brief = row.brief,
+                                    caption = row.locationLabel,
+                                    value = row.value.displayOrNull(row.brief.currency),
+                                    valueColor = Ink.Gain,
+                                    badge = "TRADE",
+                                    badgeColor = Ink.Gain,
+                                    onClick = { onOpenCopy(row) },
+                                    modifier = Modifier.width(tileWidth),
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -386,6 +415,14 @@ private fun LinkText(label: String, onClick: () -> Unit) {
     )
 }
 
+/**
+ * How many trades the home shelf carries before it stops being a glance.
+ *
+ * Twelve: enough that the shelf scrolls for anyone who actually trades, few enough that
+ * the screen does not spend a second building tiles nobody will swipe to.
+ */
+private const val TRADE_SHELF_MAX = 12
+
 private data class SetTally(val setName: String, val count: Int, val value: Money)
 
 /**
@@ -399,36 +436,81 @@ private data class StoragePlace(
     val name: String,
     val tint: Color,
     val value: Money,
+    val currency: Currency,
     val countLabel: String,
+    /** "12/40" for a binder, "12 cards" for a box -- the stat the tile leads with. */
+    val countShort: String,
+    /** How full, for the bar under a binder. Null for storage with no capacity. */
+    val fillFraction: Float?,
+    val wantedCount: Int,
     val onOpen: () -> Unit,
 )
 
+/**
+ * One place you keep cards, at a third of the screen's width.
+ *
+ * Everything here had to survive being 100dp wide, which is what decided the content: the
+ * name, the one count that matters, and what it is worth. The era label and the layout
+ * name went -- "9-pocket · 3x3" is a fact about a binder you already recognise by name,
+ * and it was the first thing to wrap to two lines and shove the value off the tile.
+ *
+ * The fill bar is the binder's stat rather than a decoration. A set binder is a progress
+ * bar by nature, and reading 12/40 as a bar is faster than reading it as a fraction.
+ */
 @Composable
-private fun StorageValueBar(place: StoragePlace, fraction: Float) {
+private fun StorageStatTile(place: StoragePlace, modifier: Modifier = Modifier) {
     Column(
-        Modifier
-            .fillMaxWidth()
+        modifier
             .clip(AppShape.Medium)
             .background(Ink.Surface)
-            .tappable(pressScale = 0.985f, onClick = place.onOpen)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .border(1.dp, Ink.OutlineFaint, AppShape.Medium)
+            .tappable(pressScale = 0.97f, onClick = place.onOpen)
+            .padding(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.width(3.dp).height(14.dp).clip(AppShape.Pill).background(place.tint))
-            Spacer(Modifier.width(9.dp))
+            Box(Modifier.width(3.dp).height(12.dp).clip(AppShape.Pill).background(place.tint))
+            Spacer(Modifier.width(6.dp))
             Text(
                 text = place.name,
                 color = Ink.TextPrimary,
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.labelLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(place.value.display(), color = Ink.TextPrimary, style = MaterialTheme.typography.titleSmall)
         }
-        Spacer(Modifier.height(9.dp))
-        ProgressTrack(fraction = fraction, color = place.tint, height = 5.dp)
-        Spacer(Modifier.height(6.dp))
-        Text(place.countLabel, color = Ink.TextTertiary, style = MaterialTheme.typography.labelSmall)
+
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = place.value.displayOrDash(place.currency),
+            color = Ink.Gold,
+            style = MaterialTheme.typography.titleSmall,
+            maxLines = 1,
+        )
+        Spacer(Modifier.height(3.dp))
+        Text(
+            text = place.countShort,
+            color = Ink.TextTertiary,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+        )
+
+        place.fillFraction?.let { fraction ->
+            Spacer(Modifier.height(7.dp))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .clip(AppShape.Pill)
+                    .background(Ink.SurfaceHigh),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .clip(AppShape.Pill)
+                        .background(place.tint),
+                )
+            }
+        }
     }
 }

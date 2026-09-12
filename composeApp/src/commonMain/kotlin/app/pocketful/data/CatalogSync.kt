@@ -141,6 +141,8 @@ class CatalogSync(private val api: TcgDex) {
                     market = Money(quote.cents),
                     source = quote.source,
                     currency = quote.currency,
+                    quotedMarket = quote.quotedCents?.let { Money(it) },
+                    quotedCurrency = quote.quotedCurrency,
                     fetchedAtEpochSeconds = nowEpochSeconds,
                 )
             }

@@ -415,7 +415,11 @@ private fun LazyListScope.cardResults(
             CardTile(
                 brief = brief,
                 value = brief.marketValue.displayOrNull(brief.currency),
-                badge = if (owned > 0) "OWN $owned" else null,
+                // The quantity has its own mark now. A word plus a number in the status
+                // slot was the app saying "owned" and "how many" in one breath, which
+                // read as a status on tiles that had a real status to show.
+                count = owned,
+                badge = if (owned > 0) "OWN" else null,
                 badgeColor = Ink.Gain,
                 onClick = { onAddLocalCard(brief) },
                 modifier = Modifier.weight(1f),
