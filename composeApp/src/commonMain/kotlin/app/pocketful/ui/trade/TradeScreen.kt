@@ -90,7 +90,11 @@ fun TradeScreen(
                     stats = buildList {
                         add(Stat("${offers.size}", "on offer", Ink.Gain))
                         add(Stat("${wants.size}", "sought", Ink.Wanted))
-                        add(Stat(wantValue.display(), "to acquire"))
+                        // Only once there is something to acquire. "To acquire $0.00"
+                        // against an empty want list is a true statement about nothing,
+                        // and it sits in the rail looking like a figure that failed to
+                        // load rather than like a list you have not started.
+                        wantValue.displayOrNull()?.let { add(Stat(it, "to acquire")) }
                         // Stated as a single signed figure rather than left for the user
                         // to subtract two numbers they can only see one of at a time.
                         if (!difference.isZero) {
