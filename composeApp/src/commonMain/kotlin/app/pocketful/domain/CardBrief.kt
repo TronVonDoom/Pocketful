@@ -25,6 +25,8 @@ data class CardBrief(
     val finish: Finish,
     val badge: String?,
     val marketValue: Money,
+    /** What [marketValue] is counted in. See CollectionSnapshot.currencyOf. */
+    val currency: Currency = Currency.USD,
     /**
      * The base art URL, without a size or extension. TCGdex serves every rendition off
      * one stem, so the row that wants a thumbnail and the sheet that wants a full render
@@ -69,6 +71,7 @@ fun CollectionSnapshot.brief(variantId: VariantId): CardBrief? {
         finish = variant.finish,
         badge = variant.badge,
         marketValue = marketValue(variantId),
+        currency = currencyOf(variantId),
         artUrl = printing.imageUrl,
         artAltUrl = printing.imageAltUrl,
     )

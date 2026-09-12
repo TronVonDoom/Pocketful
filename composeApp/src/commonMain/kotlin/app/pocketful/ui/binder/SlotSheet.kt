@@ -48,6 +48,7 @@ import app.pocketful.domain.variantBriefs
 import app.pocketful.domain.search
 import app.pocketful.data.SearchHit
 import app.pocketful.data.TcgDex
+import app.pocketful.state.displayOrDash
 import app.pocketful.state.CardLookup
 import app.pocketful.state.CollectionStore
 import app.pocketful.state.display
@@ -460,7 +461,7 @@ private fun ColumnScope.SlotDetailStep(
                 )
 
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    DetailRow("Market value", brief.marketValue.format())
+                    DetailRow("Market value", brief.marketValue.displayOrDash(brief.currency))
                     DetailRow("Counted toward", "cost to complete", valueColor = Ink.TextTertiary)
                     brief.rarity?.let { DetailRow("Rarity", it) }
                 }
@@ -693,7 +694,7 @@ private fun ColumnScope.BrowseStep(
                         },
                         trailing = {
                             ValueTrailing(
-                                value = brief.marketValue.display(),
+                                value = brief.marketValue.displayOrDash(brief.currency),
                                 valueColor = Ink.Gold,
                             )
                         },
@@ -832,7 +833,11 @@ private fun ColumnScope.CopyDetailsStep(
     SheetHeader(title = title, onClose = onClose)
 
     SheetBody {
-        CardHero(brief = chosen, valueLabel = chosen.marketValue.format(), caption = chosen.finish.label)
+        CardHero(
+            brief = chosen,
+            valueLabel = chosen.marketValue.displayOrDash(chosen.currency),
+            caption = chosen.finish.label,
+        )
 
         VariantPicker(variants = variants, selected = chosen, onSelect = { chosen = it })
 

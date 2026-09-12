@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import app.pocketful.state.display
 import app.pocketful.domain.CardBrief
 import app.pocketful.ui.theme.Ink
 
@@ -61,7 +62,7 @@ fun VariantPicker(
             text = if (selected.marketValue.isZero) {
                 "Each variation is priced separately. This one has no quote yet."
             } else {
-                "${selected.variantLabel} · ${selected.marketValue.format()} market"
+                "${selected.variantLabel} · ${selected.marketValue.display(selected.currency)} market"
             },
             color = Ink.TextTertiary,
             style = MaterialTheme.typography.bodySmall,

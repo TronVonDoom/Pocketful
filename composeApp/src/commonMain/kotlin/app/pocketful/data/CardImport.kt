@@ -247,12 +247,13 @@ object CardImport {
             variants = variants + (
                 id to Variant(id = id, printingId = printingId, finish = finish, edition = edition)
                 )
-            card.marketPriceCents(priceKeys(finish, firstEdition))?.let { cents ->
+            card.marketQuote(priceKeys(finish, firstEdition))?.let { quote ->
                 prices = prices + (
                     id to PriceSnapshot(
                         variantId = id,
-                        market = Money(cents),
-                        source = "tcgplayer",
+                        market = Money(quote.cents),
+                        source = quote.source,
+                        currency = quote.currency,
                         fetchedAtEpochSeconds = fetchedAtEpochSeconds,
                     )
                     )

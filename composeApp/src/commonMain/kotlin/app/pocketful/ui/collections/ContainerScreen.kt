@@ -25,6 +25,7 @@ import app.pocketful.domain.Container
 import app.pocketful.domain.CopyId
 import app.pocketful.domain.CopyRow
 import app.pocketful.domain.brief
+import app.pocketful.state.displayOrDash
 import app.pocketful.state.display
 import app.pocketful.state.displayOrNull
 import app.pocketful.ui.components.AddStorageRow
@@ -109,7 +110,7 @@ fun ContainerScreen(
                     eyebrow = container.kind.label,
                     title = container.name,
                     subtitle = container.subtitle,
-                    headline = summary.marketValue.format(),
+                    headline = summary.marketValue.displayOrDash(summary.currency),
                     summary = summary,
                     cover = { ContainerCover(container, width = 44.dp) },
                     leading = {

@@ -420,7 +420,7 @@ private fun WantedPocket(view: SlotView.CardSlot, corner: Dp) {
 
         if (settings.showPocketPrices && !view.value.isZero) {
             Text(
-                text = view.value.display(),
+                text = view.value.display(view.currency),
                 color = Ink.TextTertiary,
                 fontSize = 9.sp,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 5.dp),
@@ -493,7 +493,7 @@ private fun PocketStatusPill(
         }
         if (showPrice) {
             Text(
-                text = view.value.display(),
+                text = view.value.display(view.currency),
                 color = Ink.Gold,
                 fontSize = 10.sp,
                 // The line box, not the glyphs. Left at its default the text carried

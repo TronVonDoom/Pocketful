@@ -414,7 +414,7 @@ private fun LazyListScope.cardResults(
             val owned = ownedCounts[brief.printingId] ?: 0
             CardTile(
                 brief = brief,
-                value = brief.marketValue.displayOrNull(),
+                value = brief.marketValue.displayOrNull(brief.currency),
                 badge = if (owned > 0) "OWN $owned" else null,
                 badgeColor = Ink.Gain,
                 onClick = { onAddLocalCard(brief) },

@@ -1,6 +1,7 @@
 package app.pocketful.state
 
 import androidx.compose.runtime.Composable
+import app.pocketful.domain.Currency
 import app.pocketful.domain.Money
 
 /**
@@ -15,6 +16,25 @@ import app.pocketful.domain.Money
 fun Money.display(): String =
     if (LocalAppSettings.current.abbreviateValues) format(compact = true) else format()
 
+/** The same, in the money the figure is actually quoted in. */
+@Composable
+fun Money.display(currency: Currency): String =
+    if (LocalAppSettings.current.abbreviateValues) {
+        format(compact = true, currency = currency)
+    } else {
+        format(currency = currency)
+    }
+
+/**
+ * What a screen shows where a price would go when there is not one.
+ *
+ * An em dash, and deliberately not "$0.00". The two are different facts and the app was
+ * printing the second when it meant the first: a card the catalog has never quoted was
+ * being reported as worth nothing, in the same gold type used for real money. A dash says
+ * the app does not know, which is both true and unmistakable.
+ */
+const val NO_PRICE: String = "—"
+
 /**
  * The price, or nothing at all when there is not one.
  *
@@ -26,6 +46,22 @@ fun Money.display(): String =
  */
 @Composable
 fun Money.displayOrNull(): String? = if (isZero) null else display()
+
+/** The same question, answered in the right money. */
+@Composable
+fun Money.displayOrNull(currency: Currency): String? =
+    if (isZero) null else display(currency)
+
+/**
+ * A price for somewhere that must render something -- a table row, a labelled field.
+ *
+ * [displayOrNull] is for places that can simply omit the line. Where a layout has a slot
+ * reserved for a price, the honest thing is the dash rather than a blank that reads as a
+ * rendering bug.
+ */
+@Composable
+fun Money.displayOrDash(currency: Currency = Currency.USD): String =
+    if (isZero) NO_PRICE else display(currency)
 
 /**
  * Price fields, in both directions.

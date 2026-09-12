@@ -117,11 +117,53 @@ data class ValueSummary(
     val ownedCount: Int,
     val wantedCount: Int,
     val costToComplete: Money,
+    /**
+     * What [marketValue] is counted in.
+     *
+     * A collection can hold cards quoted in two markets -- TCGplayer in dollars, Cardmarket
+     * in euros -- and a total has to pick one, because adding them produces a number that
+     * is not money in any currency. So the total is struck in whichever currency the
+     * collection is mostly worth, and [alsoIn] carries the rest rather than losing them.
+     */
+    val currency: Currency = Currency.USD,
+    /** Totals in every other currency present, which [marketValue] does not include. */
+    val alsoIn: Map<Currency, Money> = emptyMap(),
+    /** How many cards are behind [marketValue] -- the honest divisor for an average. */
+    val pricedCount: Int = 0,
 ) {
+    /**
+     * What the average card in [currency] is worth, or null when nothing is priced.
+     *
+     * Divided by the cards that actually have a price in this currency rather than by the
+     * size of the collection, which is the difference between "your cards average 7 euros"
+     * and a number diluted by every card nobody has ever quoted.
+     */
+    val averageValue: Money?
+        get() = if (pricedCount <= 0) null else Money(marketValue.cents / pricedCount)
+
+    /** "also $0.18" -- the totals this summary's currency does not cover. */
+    val alsoLabel: String?
+        get() = alsoIn.takeIf { it.isNotEmpty() }
+            ?.entries
+            ?.sortedByDescending { it.value.cents }
+            ?.joinToString(" · ") { it.value.format(currency = it.key) }
+
     val unrealizedGain: Money get() = marketValue - costBasis
+
+    /**
+     * Gain against what was paid, or null when the comparison would be meaningless.
+     *
+     * What someone paid is a figure they typed, in their own money. Subtracting it from a
+     * total struck in euros is not a smaller gain or a bigger one -- it is not a quantity
+     * at all. Null there, and every screen already treats a null gain as "do not show a
+     * gain", so the number simply does not appear rather than appearing wrong.
+     */
     val gainPercent: Double?
-        get() = if (costBasis.isZero) null
-        else (unrealizedGain.cents.toDouble() / costBasis.cents.toDouble()) * 100.0
+        get() = when {
+            costBasis.isZero -> null
+            currency != Currency.USD || alsoIn.isNotEmpty() -> null
+            else -> (unrealizedGain.cents.toDouble() / costBasis.cents.toDouble()) * 100.0
+        }
 
     /**
      * Formatted here rather than at each call site: the shelf and the binder header show

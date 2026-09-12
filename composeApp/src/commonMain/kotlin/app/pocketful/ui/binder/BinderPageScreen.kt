@@ -50,6 +50,7 @@ import app.pocketful.domain.SlotContent
 import app.pocketful.domain.SlotView
 import app.pocketful.domain.ValueSummary
 import app.pocketful.state.display
+import app.pocketful.state.displayOrDash
 import app.pocketful.state.displayOrNull
 import app.pocketful.ui.components.AppSheet
 import app.pocketful.ui.components.CARD_ASPECT_RATIO
@@ -332,7 +333,8 @@ fun BinderPageScreen(
                 // binder in the header. A page is the unit this screen actually deals in
                 // -- it is what you turn to, select across and photograph -- and until
                 // now the only way to total one was to read sixteen pocket chips.
-                pageValue = snapshot.pageValue(binder, pagerState.currentPage).displayOrNull(),
+                pageValue = snapshot.pageValue(binder, pagerState.currentPage)
+                    .displayOrNull(summary.currency),
                 onPrevious = {
                     val target = pagerState.currentPage - 1
                     if (target >= 0) scope.launch { pagerState.animateScrollToPage(target) }
@@ -413,7 +415,7 @@ private fun BinderHeader(
         // is nothing to report rather than showing a dash, which leaves a young binder
         // with the two figures it actually has instead of four, half of them empty.
         stats = buildList {
-            add(Stat(summary.marketValue.display(), "value", Ink.Gold))
+            add(Stat(summary.marketValue.displayOrDash(summary.currency), "value", Ink.Gold))
             summary.gainPercentLabel?.let {
                 add(Stat(it, "gain", if (summary.unrealizedGain.cents >= 0) Ink.Gain else Ink.Loss))
             }

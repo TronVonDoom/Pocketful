@@ -233,6 +233,14 @@ fun DetailRow(
     value: String,
     modifier: Modifier = Modifier,
     valueColor: Color = Ink.TextPrimary,
+    /**
+     * A quiet note under the figure, for where it came from.
+     *
+     * Worth having on exactly one row today -- a price quoted in euros needs to say that
+     * it came from Cardmarket, or it reads as a bug rather than as the only market that
+     * has ever priced the card.
+     */
+    caption: String? = null,
 ) {
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -241,6 +249,16 @@ fun DetailRow(
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.weight(1f),
         )
-        Text(value, color = valueColor, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+        Column(horizontalAlignment = Alignment.End) {
+            Text(value, color = valueColor, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+            caption?.let {
+                Text(
+                    text = it,
+                    color = Ink.TextTertiary,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                )
+            }
+        }
     }
 }

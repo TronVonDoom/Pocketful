@@ -15,8 +15,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import app.pocketful.state.display
+import app.pocketful.state.displayOrDash
 import app.pocketful.domain.BinderId
 import app.pocketful.domain.CollectionSnapshot
+import app.pocketful.domain.Currency
 import app.pocketful.domain.CopyId
 import app.pocketful.domain.Location
 import app.pocketful.domain.brief
@@ -70,7 +73,19 @@ fun CopySheet(
 
         val value = snapshot.valueOf(copy)
         val paid = copy.acquiredPrice
-        val gain = paid?.let { value - it }
+        // Only meaningful against a price in the same money. What someone paid is a figure
+        // they typed in their own currency, and subtracting it from a euro quote is not a
+        // smaller gain -- it is not a quantity at all.
+        val gain = paid?.takeIf { brief.currency == Currency.USD }?.let { value - it }
+        val priceSource = snapshot.prices[copy.variantId]
+            ?.takeIf { !it.market.isZero }
+            ?.let { quote ->
+                when (quote.source) {
+                    "cardmarket" -> "Cardmarket · ${quote.currency.code}"
+                    "tcgplayer" -> if (quote.currency == Currency.USD) null else "TCGplayer"
+                    else -> quote.source
+                }
+            }
         val slot = copy.location as? Location.BinderSlot
         val binderName = slot?.let { location -> snapshot.binders.firstOrNull { it.id == location.binderId }?.name }
         val container = (copy.location as? Location.InContainer)
@@ -87,15 +102,26 @@ fun CopySheet(
         )
 
         SheetBody {
-            CardHero(brief = brief, valueLabel = value.format(), caption = brief.finish.label)
+            CardHero(
+                brief = brief,
+                valueLabel = value.displayOrDash(brief.currency),
+                caption = brief.finish.label,
+            )
 
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 DetailRow("Condition", copy.condition.label)
                 copy.grade?.let { grade ->
                     DetailRow("Grade", grade.label + (grade.certNumber?.let { " · $it" } ?: ""))
                 }
-                DetailRow("Market value", value.format())
-                DetailRow("Paid", paid?.format() ?: "not recorded")
+                DetailRow(
+                    label = "Market value",
+                    value = value.displayOrDash(brief.currency),
+                    // Says which shop quoted it whenever that is not the obvious one. A
+                    // euro figure with no explanation reads as a bug; "Cardmarket" reads
+                    // as the reason there is a price here at all.
+                    caption = priceSource,
+                )
+                DetailRow("Paid", paid?.display() ?: "not recorded")
                 if (gain != null) {
                     DetailRow(
                         label = "Unrealised",

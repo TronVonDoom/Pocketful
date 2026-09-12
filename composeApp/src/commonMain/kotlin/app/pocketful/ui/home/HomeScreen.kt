@@ -35,6 +35,7 @@ import app.pocketful.domain.copyRows
 import app.pocketful.domain.tradeRows
 import app.pocketful.domain.wantRows
 import app.pocketful.state.display
+import app.pocketful.state.displayOrDash
 import app.pocketful.state.displayOrNull
 import app.pocketful.ui.components.AddTile
 import app.pocketful.ui.components.AppButton
@@ -140,7 +141,7 @@ fun HomeScreen(
             .sortedByDescending { it.value.cents }
     }
     val averageValue = remember(copies, total) {
-        if (copies.isEmpty()) Money.ZERO else Money(total.marketValue.cents / copies.size)
+        total.averageValue
     }
     val livePrices = remember(snapshot) { snapshot.prices.values.count { it.source == "tcgplayer" } }
 
@@ -159,20 +160,25 @@ fun HomeScreen(
                 ScreenHeader(
                     eyebrow = "Portfolio",
                     centered = true,
-                    headline = total.marketValue.format(),
-                    headlineCaption = if (copies.isEmpty()) {
-                        "Nothing recorded yet"
-                    } else {
-                        "across ${copies.size} ${if (copies.size == 1) "card" else "cards"}"
+                    headline = total.marketValue.displayOrDash(total.currency),
+                    headlineCaption = when {
+                        copies.isEmpty() -> "Nothing recorded yet"
+                        // Says out loud what the headline cannot include. A collection
+                        // holding both markets has two totals and no single number that
+                        // is the sum of them, so the second one is printed rather than
+                        // folded in or quietly dropped.
+                        total.alsoLabel != null ->
+                            "across ${copies.size} cards · also ${total.alsoLabel}"
+                        else -> "across ${copies.size} ${if (copies.size == 1) "card" else "cards"}"
                     },
                     summary = total,
                     stats = buildList {
                         add(Stat("${total.ownedCount}", "cards"))
                         add(Stat("${snapshot.binders.size + snapshot.containers.size}", "places"))
-                        add(Stat(averageValue.display(), "average"))
+                        averageValue?.let { add(Stat(it.display(total.currency), "average")) }
                         if (total.wantedCount > 0) {
                             add(Stat("${total.wantedCount}", "wanted", Ink.Wanted))
-                            total.costToComplete.displayOrNull()?.let {
+                            total.costToComplete.displayOrNull(total.currency)?.let {
                                 add(Stat(it, "to finish", Ink.Gold))
                             }
                         }

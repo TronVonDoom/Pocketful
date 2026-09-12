@@ -24,6 +24,7 @@ import app.pocketful.domain.Condition
 import app.pocketful.domain.Container
 import app.pocketful.domain.ContainerId
 import app.pocketful.domain.Money
+import app.pocketful.state.displayOrDash
 import app.pocketful.state.filterPriceInput
 import app.pocketful.state.toMoneyOrNull
 import app.pocketful.ui.components.AppButton
@@ -100,7 +101,7 @@ fun AddToCollectionSheet(
         SheetBody {
             CardHero(
                 brief = active,
-                valueLabel = active.marketValue.format(),
+                valueLabel = active.marketValue.displayOrDash(active.currency),
                 caption = active.finish.label,
             )
 

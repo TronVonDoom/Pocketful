@@ -1,6 +1,7 @@
 package app.pocketful.data
 
 import app.pocketful.AppVersion
+import app.pocketful.domain.Currency
 import app.pocketful.domain.TcgGame
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -684,13 +685,24 @@ data class RemoteCard(
     @SerialName("pricing") val pricing: JsonObject? = null,
 ) {
     /**
-     * Market price in USD cents, for the TCGplayer finish that best matches [finishKeys].
+     * What this card is worth, for the finish that best matches [finishKeys].
      *
-     * Only TCGplayer is read. The same document carries Cardmarket figures, but those are
-     * in euros, and the app renders one currency symbol -- quietly filing a EUR number
-     * under a "$" is worse than showing no price at all.
+     * TCGplayer first, in dollars, because that is the market most of this app's cards
+     * actually trade in. Cardmarket second, in euros, because for a great many cards it is
+     * the only market that has ever quoted them -- every promo distributed outside North
+     * America, most Japanese printings, anything never sold as an English single. Those
+     * cards used to come back with no price at all and render as "$0.00", which told a
+     * collector their card was worthless when what the app meant was that it had looked in
+     * one shop.
+     *
+     * The currency comes back with the figure rather than being assumed, which is what
+     * makes reading the second source safe: the euro number is labelled a euro number
+     * everywhere it is shown, and nothing can add it to a dollar one by accident.
      */
-    fun marketPriceCents(finishKeys: List<String>): Long? {
+    fun marketQuote(finishKeys: List<String>): Quote? =
+        tcgplayerQuote(finishKeys) ?: cardmarketQuote()
+
+    private fun tcgplayerQuote(finishKeys: List<String>): Quote? {
         // Every step here can be JSON null rather than absent -- a card the catalog knows
         // about but has never seen sold carries `"pricing": {"tcgplayer": null}`, and
         // reading that as an object is a crash, not a missing price.
@@ -698,9 +710,29 @@ data class RemoteCard(
         val preferred = finishKeys.firstNotNullOfOrNull { key -> tcgplayer[key]?.marketPrice() }
         val quoted = preferred ?: tcgplayer.values.firstNotNullOfOrNull { it.marketPrice() }
         // A quote of zero is the catalog saying it has no figure, not a free card.
-        return quoted?.takeIf { it > 0.0 }?.let { (it * 100).toLong() }
+        return quoted?.takeIf { it > 0.0 }
+            ?.let { Quote((it * 100).toLong(), Currency.USD, "tcgplayer") }
+    }
+
+    /**
+     * The Cardmarket figure, which is shaped nothing like the TCGplayer one.
+     *
+     * It is a flat object for the whole card rather than one entry per finish, so there is
+     * no finish to match -- and it carries several figures at once. `trend` is preferred
+     * over `avg`: the average is over the card's whole listing history and lags a long way
+     * behind on anything that has moved, while trend is Cardmarket's own current estimate.
+     */
+    private fun cardmarketQuote(): Quote? {
+        val cardmarket = (pricing?.get("cardmarket") as? JsonObject) ?: return null
+        val quoted = listOf("trend", "avg", "avg7", "avg30", "low")
+            .firstNotNullOfOrNull { key -> (cardmarket[key] as? JsonPrimitive)?.doubleOrNull }
+        return quoted?.takeIf { it > 0.0 }
+            ?.let { Quote((it * 100).toLong(), Currency.EUR, "cardmarket") }
     }
 }
+
+/** A price and the money it is counted in, which are never worth separating. */
+data class Quote(val cents: Long, val currency: Currency, val source: String)
 
 private fun JsonElement.marketPrice(): Double? =
     (this as? JsonObject)?.get("marketPrice")?.let { it as? JsonPrimitive }?.doubleOrNull

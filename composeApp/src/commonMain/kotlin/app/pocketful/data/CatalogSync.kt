@@ -135,11 +135,12 @@ class CatalogSync(private val api: TcgDex) {
                 )
 
             for (variant in variantsByPrinting[printingId].orEmpty()) {
-                val cents = card.marketPriceCents(priceKeysFor(variant.finish)) ?: continue
+                val quote = card.marketQuote(priceKeysFor(variant.finish)) ?: continue
                 prices[variant.id] = PriceSnapshot(
                     variantId = variant.id,
-                    market = Money(cents),
-                    source = "tcgplayer",
+                    market = Money(quote.cents),
+                    source = quote.source,
+                    currency = quote.currency,
                     fetchedAtEpochSeconds = nowEpochSeconds,
                 )
             }

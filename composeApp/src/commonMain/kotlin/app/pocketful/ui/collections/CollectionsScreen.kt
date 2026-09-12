@@ -24,6 +24,7 @@ import app.pocketful.domain.BinderId
 import app.pocketful.domain.CollectionSnapshot
 import app.pocketful.domain.Container
 import app.pocketful.domain.ContainerId
+import app.pocketful.state.displayOrDash
 import app.pocketful.state.display
 import app.pocketful.state.displayOrNull
 import app.pocketful.ui.components.AddTile
@@ -135,7 +136,7 @@ fun CollectionsScreen(
                 ScreenHeader(
                     eyebrow = "Collection",
                     centered = true,
-                    headline = total.marketValue.format(),
+                    headline = total.marketValue.displayOrDash(total.currency),
                     headlineCaption = "stored across " +
                         "${snapshot.binders.size + snapshot.containers.size} " +
                         (if (snapshot.binders.size + snapshot.containers.size == 1) "place" else "places"),
@@ -361,7 +362,7 @@ private fun BinderTile(
         // The grid is drawn on the cover, so the caption does not spell it out again --
         // "9-pocket - 3x3 - 12/40" was two facts and a picture of the third.
         caption = "${binder.layout.displayName} · ${summary.ownedCount}/${binder.capacity}",
-        value = summary.marketValue.display(),
+        value = summary.marketValue.displayOrDash(summary.currency),
         accent = spine,
         gainLabel = summary.gainPercentLabel,
         gainPositive = summary.unrealizedGain.cents >= 0,
@@ -391,7 +392,7 @@ private fun ContainerTile(
         name = container.name,
         caption = container.kind.label + " · " +
             if (container.count == 1) "1 card" else "${container.count} cards",
-        value = summary.marketValue.display(),
+        value = summary.marketValue.displayOrDash(summary.currency),
         accent = Color(container.color),
         gainLabel = summary.gainPercentLabel,
         gainPositive = summary.unrealizedGain.cents >= 0,

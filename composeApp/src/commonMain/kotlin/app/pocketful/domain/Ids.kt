@@ -68,6 +68,30 @@ value class ContainerId(val value: String) {
 }
 
 /**
+ * Which money a figure is denominated in.
+ *
+ * Exists because the catalog quotes two markets and only one of them is in dollars.
+ * TCGplayer covers the English-language singles market and is the right answer where it
+ * has one -- but it has nothing at all for a large part of the catalog (promos, Japanese
+ * printings, anything not sold as a single in North America), and for many of those
+ * Cardmarket does. The old code read TCGplayer and discarded the rest, on the reasoning
+ * that filing a euro figure under a dollar sign is worse than showing nothing. That is
+ * true, and it is an argument for carrying the currency rather than for dropping the
+ * price: a collector whose cards only trade in Europe was being told they were worth
+ * nothing, which is a far bigger lie than the one being avoided.
+ *
+ * Amounts stay currency-less -- [Money] is a count of minor units and nothing more -- so
+ * the currency travels with the *quote* and is applied when it is rendered. That keeps
+ * arithmetic honest by construction: there is no operator here that can silently add
+ * euros to dollars.
+ */
+@Serializable
+enum class Currency(val symbol: String, val code: String) {
+    USD("$", "USD"),
+    EUR("€", "EUR"),
+}
+
+/**
  * Minor units (cents). Never use floating point for money: summing a 900-card binder
  * accumulates enough error to be visibly wrong.
  */
@@ -81,8 +105,8 @@ value class Money(val cents: Long) : Comparable<Money> {
 
     val isZero: Boolean get() = cents == 0L
 
-    /** Compact display: $1.2k above four figures, otherwise grouped dollars and cents. */
-    fun format(compact: Boolean = false): String {
+    /** Compact display: $1.2k above four figures, otherwise grouped units and minor units. */
+    fun format(compact: Boolean = false, currency: Currency = Currency.USD): String {
         val negative = cents < 0
         val abs = if (negative) -cents else cents
         val body = when {
@@ -98,7 +122,8 @@ value class Money(val cents: Long) : Comparable<Money> {
             }
             else -> group(abs / 100) + "." + (abs % 100).toString().padStart(2, '0')
         }
-        return if (negative) "-$$body" else "$$body"
+        val symbol = currency.symbol
+        return if (negative) "-$symbol$body" else "$symbol$body"
     }
 
     companion object {

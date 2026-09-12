@@ -22,6 +22,32 @@ data class CollectionSnapshot(
         prices[variantId]?.market ?: Money.ZERO
 
     /**
+     * What that figure is counted in.
+     *
+     * Asked separately rather than returned beside the amount because almost every caller
+     * wants only the number -- it is summed, scaled by condition, compared -- and threading
+     * a pair through all of that would put a currency on arithmetic that has no business
+     * knowing about one. The currency is needed at exactly one moment, when a figure is
+     * about to be drawn, and this is how that moment asks.
+     *
+     * Dollars when there is no quote at all, which never renders: an absent price shows as
+     * a dash rather than as a figure, so the currency of nothing is never seen.
+     */
+    fun currencyOf(variantId: VariantId): Currency =
+        prices[variantId]?.currency ?: Currency.USD
+
+    /**
+     * Every currency the priced part of this collection is quoted in.
+     *
+     * A total can only be honest about one of them at a time -- euros cannot be added to
+     * dollars, and an app that quietly did so would report a portfolio value that is not a
+     * number in any currency at all. So totals are struck per currency and the screens say
+     * which one they are showing.
+     */
+    fun currenciesInUse(): Set<Currency> =
+        prices.values.filter { !it.market.isZero }.map { it.currency }.toSet()
+
+    /**
      * Condition scales the market price. Graded copies are deliberately *not* scaled --
      * a PSA 10 does not trade at raw NM price, and pretending otherwise is worse than
      * showing the raw number until real graded pricing is wired up.
@@ -32,8 +58,46 @@ data class CollectionSnapshot(
         return Money((base.cents * copy.condition.multiplier).toLong())
     }
 
+    /**
+     * Market totals, kept apart by the money they are counted in.
+     *
+     * The one piece of arithmetic in this file that cannot be a running `+=`. Every other
+     * total is a single quantity; this one is several, and collapsing them early is
+     * exactly the mistake that makes a portfolio read as a number that is not money.
+     */
+    private class Purse {
+        private val totals = mutableMapOf<Currency, Long>()
+        private val counts = mutableMapOf<Currency, Int>()
+
+        fun add(amount: Money, currency: Currency) {
+            if (amount.isZero) return
+            totals[currency] = (totals[currency] ?: 0L) + amount.cents
+            counts[currency] = (counts[currency] ?: 0) + 1
+        }
+
+        /** The currency this collection is mostly worth, and what it comes to. */
+        val leading: Pair<Currency, Money>
+            get() = totals.maxByOrNull { it.value }
+                ?.let { it.key to Money(it.value) }
+                ?: (Currency.USD to Money.ZERO)
+
+        /** Everything the leading total leaves out, so no figure is silently dropped. */
+        fun others(): Map<Currency, Money> =
+            totals.filterKeys { it != leading.first }.mapValues { Money(it.value) }
+
+        /**
+         * How many cards actually went into the leading total.
+         *
+         * The divisor for an average, and pointedly not the size of the collection. A
+         * hundred cards of which three are priced have an average worth of those three --
+         * dividing by a hundred reports an average that no card in the binder is near, and
+         * it gets worse the more unpriced cards you own.
+         */
+        val leadingCount: Int get() = counts[leading.first] ?: 0
+    }
+
     fun summarize(binder: Binder): ValueSummary {
-        var market = Money.ZERO
+        val purse = Purse()
         var basis = Money.ZERO
         var owned = 0
         var wanted = 0
@@ -43,7 +107,7 @@ data class CollectionSnapshot(
             when (slot) {
                 is SlotContent.Filled -> copies[slot.copyId]?.let { copy ->
                     owned++
-                    market += valueOf(copy)
+                    purse.add(valueOf(copy), currencyOf(copy.variantId))
                     basis += copy.acquiredPrice ?: Money.ZERO
                 }
                 is SlotContent.Wanted -> {
@@ -53,21 +117,35 @@ data class CollectionSnapshot(
                 SlotContent.Empty, is SlotContent.Spacer -> Unit
             }
         }
-        return ValueSummary(market, basis, owned, wanted, toComplete)
+        val (currency, market) = purse.leading
+        return ValueSummary(
+            market, basis, owned, wanted, toComplete,
+            currency, purse.others(), purse.leadingCount,
+        )
     }
 
     /** A container's contribution: real cards, but no pockets and so nothing wanted. */
     fun summarize(container: Container): ValueSummary {
-        var market = Money.ZERO
+        val purse = Purse()
         var basis = Money.ZERO
         var owned = 0
         for (copyId in container.copyIds) {
             val copy = copies[copyId] ?: continue
             owned++
-            market += valueOf(copy)
+            purse.add(valueOf(copy), currencyOf(copy.variantId))
             basis += copy.acquiredPrice ?: Money.ZERO
         }
-        return ValueSummary(market, basis, owned, wantedCount = 0, costToComplete = Money.ZERO)
+        val (currency, market) = purse.leading
+        return ValueSummary(
+            marketValue = market,
+            costBasis = basis,
+            ownedCount = owned,
+            wantedCount = 0,
+            costToComplete = Money.ZERO,
+            currency = currency,
+            alsoIn = purse.others(),
+            pricedCount = purse.leadingCount,
+        )
     }
 
     /**
@@ -78,10 +156,10 @@ data class CollectionSnapshot(
      * worth. Wants are binder-only because a pocket is what holds the gap open.
      */
     fun summarizeAll(): ValueSummary {
-        var market = Money.ZERO
+        val purse = Purse()
         var basis = Money.ZERO
         for (copy in copies.values) {
-            market += valueOf(copy)
+            purse.add(valueOf(copy), currencyOf(copy.variantId))
             basis += copy.acquiredPrice ?: Money.ZERO
         }
 
@@ -94,7 +172,11 @@ data class CollectionSnapshot(
                 toComplete += slot.targetPrice ?: marketValue(slot.variantId)
             }
         }
-        return ValueSummary(market, basis, copies.size, wanted, toComplete)
+        val (currency, market) = purse.leading
+        return ValueSummary(
+            market, basis, copies.size, wanted, toComplete,
+            currency, purse.others(), purse.leadingCount,
+        )
     }
 
     /**
@@ -173,6 +255,7 @@ data class CollectionSnapshot(
                     imageUrl = printing.imageUrl,
                     imageAltUrl = printing.imageAltUrl,
                     value = valueOf(copy),
+                    currency = currencyOf(copy.variantId),
                     conditionShort = copy.condition.short,
                     gradeLabel = copy.grade?.label,
                     owned = true,
@@ -198,6 +281,7 @@ data class CollectionSnapshot(
                     imageUrl = printing.imageUrl,
                     imageAltUrl = printing.imageAltUrl,
                     value = slot.targetPrice ?: marketValue(slot.variantId),
+                    currency = currencyOf(slot.variantId),
                     conditionShort = null,
                     gradeLabel = null,
                     owned = false,
@@ -224,6 +308,8 @@ sealed interface SlotView {
         /** A finished URL, for cards with no [imageUrl] stem. See Printing.imageAltUrl. */
         val imageAltUrl: String? = null,
         val value: Money,
+        /** What [value] is counted in. See [CollectionSnapshot.currencyOf]. */
+        val currency: Currency = Currency.USD,
         val conditionShort: String?,
         val gradeLabel: String?,
         val owned: Boolean,

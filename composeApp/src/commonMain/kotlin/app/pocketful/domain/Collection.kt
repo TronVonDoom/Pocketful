@@ -86,5 +86,13 @@ data class PriceSnapshot(
     val low: Money? = null,
     val high: Money? = null,
     val source: String,
+    /**
+     * What the figure is counted in.
+     *
+     * Defaulted rather than required, so every save written before prices could be
+     * anything but dollars still reads -- those really were all USD, which makes the
+     * default the true answer rather than a convenient one.
+     */
+    val currency: Currency = Currency.USD,
     val fetchedAtEpochSeconds: Long,
 )
