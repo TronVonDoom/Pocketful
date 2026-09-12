@@ -80,18 +80,10 @@ fun CopySheet(
         val priceSource = snapshot.prices[copy.variantId]
             ?.takeIf { !it.market.isZero }
             ?.let { quote ->
-                val market = when (quote.source) {
-                    "cardmarket" -> "Cardmarket"
+when (quote.source) {
                     "tcgplayer" -> "TCGplayer"
                     else -> quote.source
                 }
-                // A figure the app did arithmetic to says so, and says what it started
-                // as. Presenting a converted approximation as though it were a quote
-                // somebody could go and verify would be the dishonest half of converting.
-                val from = quote.quotedMarket?.let { original ->
-                    quote.quotedCurrency?.let { " · from ${original.format(currency = it)}" }
-                }
-                market + (from ?: "")
             }
         val slot = copy.location as? Location.BinderSlot
         val binderName = slot?.let { location -> snapshot.binders.firstOrNull { it.id == location.binderId }?.name }

@@ -8,7 +8,7 @@ import androidx.compose.runtime.setValue
 import app.pocketful.data.CardArt
 import app.pocketful.data.CatalogDownload
 import app.pocketful.data.CatalogSync
-import app.pocketful.data.ExchangeRates
+import app.pocketful.data.PriceDownload
 import app.pocketful.data.TcgDex
 import app.pocketful.data.nowEpochSeconds
 import app.pocketful.domain.Printing
@@ -111,7 +111,7 @@ class AppBootstrap {
         browser: CatalogBrowser,
         api: TcgDex,
         catalogDownload: CatalogDownload,
-        exchangeRates: ExchangeRates,
+        priceDownload: PriceDownload,
         imageLoader: ImageLoader,
         imageContext: PlatformContext,
     ): CatalogSync.Result? {
@@ -142,10 +142,11 @@ class AppBootstrap {
             step(CATALOG_FILE_STEP, 0.10f, 0.26f) {
                 api.usePublished(catalogDownload.ensure(nowEpochSeconds()))
                 // Folded into the same step rather than given one of its own. It is a
-                // single small request that usually answers off disk, and a progress bar
-                // that stops to announce "fetching an exchange rate" is a bar describing
-                // the app's plumbing rather than the user's collection.
-                api.useExchangeRate(exchangeRates.eurToUsd(nowEpochSeconds()))
+                // 120KB file that usually answers off disk, and a progress bar that stops
+                // to announce it is describing the app's plumbing rather than the user's
+                // collection. Failing here is survivable: the app falls back to asking
+                // TCGdex per card, which is where prices came from before this file.
+                api.usePrices(priceDownload.ensure(nowEpochSeconds()))
             }
             catalogOutcome = catalogDownload.outcome
 

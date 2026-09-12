@@ -66,17 +66,20 @@ class TcgDex(
     }
 
     /**
-     * The euro-to-dollar rate, once the launch has one.
+     * The published price file, once the launch has it.
      *
-     * Held here for the same reason the catalog is: this class is what turns an upstream
-     * document into a price, and conversion is part of that job rather than something
-     * every caller should have to remember to do afterwards. Null simply means euro
-     * quotes stay euros, which every total in the app already copes with.
+     * Preferred over anything the live document says, and it is worth being clear that
+     * this is not a cache of the same figures. TCGdex carries a TCGplayer price for part
+     * of the catalog; this carries one for essentially every card TCGplayer sells, taken
+     * from TCGplayer's own catalog rather than from a field that is often simply absent.
+     * The app used to paper over those gaps by converting the European price, which was
+     * wrong by forty to seventy percent on exactly the cards that needed it -- a promo
+     * that is scarce in Europe and ordinary here does not become expensive in dollars.
      */
-    private var eurToUsd: Double? = null
+    private var prices: PublishedPrices? = null
 
-    fun useExchangeRate(rate: Double?) {
-        eurToUsd = rate?.takeIf { it > 0.0 }
+    fun usePrices(published: PublishedPrices?) {
+        prices = published?.takeIf { it.isUsable }
     }
 
     /**
@@ -172,14 +175,14 @@ class TcgDex(
             // The normal path. Static from disk, price from the wire, and the catalog
             // wins every field they both carry -- it is the one that was audited.
             local != null && live != null ->
-                local.copy(pricing = live.pricing, eurToUsd = eurToUsd)
+                local.copy(pricing = live.pricing, publishedQuotes = prices?.cards?.get(id))
             // Offline, or upstream having an afternoon. Complete but unpriced, which
             // CardImport already handles: a card with no quote keeps whatever price the
             // snapshot held, so this can never zero out a figure someone else fetched.
             local != null -> local
             // A card printed since the catalog was last built. Nothing local to prefer,
             // so the live document is the whole answer, exactly as it always was.
-            else -> live?.copy(eurToUsd = eurToUsd)
+            else -> live?.copy(publishedQuotes = prices?.cards?.get(id))
         }
     }
 
@@ -695,15 +698,14 @@ data class RemoteCard(
      */
     val imageAlt: String? = null,
     /**
-     * The euro-to-dollar rate in force when this card was fetched.
+     * What the published price file says this card is worth, per printing.
      *
      * Rides on the card for the same reason [imageAlt] does: the alternative is an extra
      * argument at every call site that turns a card into a price, and the one that forgets
-     * it silently files a euro figure. [TcgDex.card] stamps it; nothing else needs to know
-     * rates exist.
+     * it quietly falls back to the worse source. [TcgDex.card] stamps it.
      */
     @kotlinx.serialization.Transient
-    val eurToUsd: Double? = null,
+    val publishedQuotes: Map<String, Long>? = null,
     // Left as a raw object: TCGplayer keys its prices by finish name, and which keys
     // exist differs card to card ("holofoil", "reverseHolofoil", "1stEditionNormal"...).
     // A typed class here would have to enumerate every finish the hobby has ever had.
@@ -724,8 +726,24 @@ data class RemoteCard(
      * makes reading the second source safe: the euro number is labelled a euro number
      * everywhere it is shown, and nothing can add it to a dollar one by accident.
      */
+    /**
+     * What this card is worth, in dollars, for the printing that best matches.
+     *
+     * The published file first: it is TCGplayer's own number, in dollars, and it covers
+     * the cards the live document has nothing for. TCGdex's own pricing field is the
+     * fallback for anything published too recently to have been packed yet.
+     */
     fun marketQuote(finishKeys: List<String>): Quote? =
-        tcgplayerQuote(finishKeys) ?: cardmarketQuote(eurToUsd)
+        publishedQuote(finishKeys) ?: tcgplayerQuote(finishKeys)
+
+    private fun publishedQuote(finishKeys: List<String>): Quote? {
+        val quotes = publishedQuotes ?: return null
+        val cents = finishKeys.firstNotNullOfOrNull { quotes[it] }
+            // Priced, but not in the printing asked for. One figure beats none: a reverse
+            // holo with only a normal quote is worth about a normal, not about nothing.
+            ?: quotes.values.firstOrNull()
+        return cents?.takeIf { it > 0 }?.let { Quote(it, Currency.USD, "tcgplayer") }
+    }
 
     private fun tcgplayerQuote(finishKeys: List<String>): Quote? {
         // Every step here can be JSON null rather than absent -- a card the catalog knows
@@ -739,51 +757,10 @@ data class RemoteCard(
             ?.let { Quote((it * 100).toLong(), Currency.USD, "tcgplayer") }
     }
 
-    /**
-     * The Cardmarket figure, which is shaped nothing like the TCGplayer one.
-     *
-     * It is a flat object for the whole card rather than one entry per finish, so there is
-     * no finish to match -- and it carries several figures at once. `trend` is preferred
-     * over `avg`: the average is over the card's whole listing history and lags a long way
-     * behind on anything that has moved, while trend is Cardmarket's own current estimate.
-     */
-    private fun cardmarketQuote(rate: Double?): Quote? {
-        val cardmarket = (pricing?.get("cardmarket") as? JsonObject) ?: return null
-        val quoted = listOf("trend", "avg", "avg7", "avg30", "low")
-            .firstNotNullOfOrNull { key -> (cardmarket[key] as? JsonPrimitive)?.doubleOrNull }
-            ?.takeIf { it > 0.0 }
-            ?: return null
-
-        val euros = (quoted * 100).toLong()
-        // Converted here rather than at the moment of drawing, so that everything
-        // downstream -- the totals, the sorts, the "most valuable" ranking -- is comparing
-        // one currency. A rate we do not have leaves the figure in euros, which is worse
-        // than dollars and much better than nothing.
-        rate ?: return Quote(euros, Currency.EUR, "cardmarket")
-        return Quote(
-            cents = (quoted * rate * 100).toLong(),
-            currency = Currency.USD,
-            source = "cardmarket",
-            quotedCents = euros,
-            quotedCurrency = Currency.EUR,
-        )
-    }
 }
 
-/**
- * A price, the money it is counted in, and -- when it was converted -- what it started as.
- *
- * The original is kept so a screen can say "converted from EUR 36.67" rather than passing an
- * approximation off as a quote somebody could go and verify. A figure the app has done
- * arithmetic to deserves to admit it.
- */
-data class Quote(
-    val cents: Long,
-    val currency: Currency,
-    val source: String,
-    val quotedCents: Long? = null,
-    val quotedCurrency: Currency? = null,
-)
+/** A price and the money it is counted in, which are never worth separating. */
+data class Quote(val cents: Long, val currency: Currency, val source: String)
 
 private fun JsonElement.marketPrice(): Double? =
     (this as? JsonObject)?.get("marketPrice")?.let { it as? JsonPrimitive }?.doubleOrNull

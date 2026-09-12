@@ -41,7 +41,7 @@ import app.pocketful.data.CatalogSync
 import app.pocketful.data.RemoteSet
 import app.pocketful.data.rememberDocumentTransfer
 import app.pocketful.data.CatalogDownload
-import app.pocketful.data.ExchangeRates
+import app.pocketful.data.PriceDownload
 import app.pocketful.data.rememberSaveStorage
 import app.pocketful.data.SearchHit
 import app.pocketful.state.AutosaveEffect
@@ -137,7 +137,7 @@ fun App() {
     // One per app, like the API client: it owns the downloaded catalog file and the stamp
     // saying when the app last bothered to ask whether a new set exists.
     val catalogDownload = remember(storage) { CatalogDownload(storage) }
-    val exchangeRates = remember(storage) { ExchangeRates(storage) }
+    val priceDownload = remember(storage) { PriceDownload(storage) }
     val transfer = rememberCollectionTransfer(rememberDocumentTransfer())
     val snapshot = store.snapshot
     val catalog = rememberTcgDex()
@@ -374,7 +374,7 @@ fun App() {
             browser = browser,
             api = catalog,
             catalogDownload = catalogDownload,
-            exchangeRates = exchangeRates,
+            priceDownload = priceDownload,
             imageLoader = SingletonImageLoader.get(imageContext),
             imageContext = imageContext,
         )
