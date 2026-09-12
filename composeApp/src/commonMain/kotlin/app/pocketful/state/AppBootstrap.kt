@@ -97,6 +97,10 @@ class AppBootstrap {
     var artFilled by mutableStateOf(0)
         private set
 
+    /** How many cards had their catalog rows rebuilt. Reported, because it means damage. */
+    var rebuilt by mutableStateOf(0)
+        private set
+
     /**
      * Runs the sequence and returns the catalog delta for the caller to apply.
      *
@@ -156,7 +160,19 @@ class AppBootstrap {
             //     between a card gaining its picture now and gaining it in six hours, and
             //     the only way the ~1,700 cards TCGdex has no artwork for ever get one,
             //     since the document the price sync fetches does not know they exist.
-            step(ARTWORK_FILL, 0.26f, 0.30f) {
+            // 1a-i. Cards the collection points at but has no catalog rows for.
+            //
+            //       Ahead of everything that reads those rows, because until it runs those
+            //       cards are ids and nothing else -- no name to match on, no printing to
+            //       hang a price from. Costs nothing on a healthy collection, which is
+            //       every launch but the one after something went wrong.
+            step(REPAIR, 0.26f, 0.27f) {
+                val recovered = catalogSync.recoverOrphans(store.snapshot)
+                store.applyRecovery(recovered)
+                rebuilt = recovered.count
+            }
+
+            step(ARTWORK_FILL, 0.27f, 0.30f) {
                 artPrintings = catalogSync.fillArtFromCatalog(store.snapshot)
                 artFilled = artPrintings.size
             }
@@ -272,6 +288,10 @@ class AppBootstrap {
 
     /** The one line the loading screen leaves behind about what the launch achieved. */
     private fun describe(result: CatalogSync.Result?): String? = when {
+        // First, because it is the only line here that reports a repair rather than an
+        // improvement. If the app had to rebuild part of the collection, that is the most
+        // interesting thing about the launch by some distance.
+        rebuilt > 0 -> "Rebuilt $rebuilt ${if (rebuilt == 1) "card" else "cards"} from the catalog"
         // Said first, because it is the most interesting thing a launch can report: the
         // app just stopped needing the network to browse.
         artFilled > 0 -> "Found artwork for $artFilled cards"
@@ -291,6 +311,7 @@ class AppBootstrap {
         const val FIRST_STATUS = "Opening your collection"
         const val RESTORE = "Opening your collection"
         const val CATALOG_FILE_STEP = "Getting the card catalog"
+        const val REPAIR = "Checking your collection"
         const val ARTWORK_FILL = "Matching your cards to it"
         const val CATALOG = "Reading the set catalog"
         const val MATCHING = "Matching your cards"

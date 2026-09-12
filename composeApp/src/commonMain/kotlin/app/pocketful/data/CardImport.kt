@@ -95,6 +95,47 @@ object CardImport {
     }
 
     /**
+     * A variant id read back into the card and press run it was minted from.
+     *
+     * The inverse of [variantId], and the reason a lost catalog cache is recoverable
+     * rather than fatal. These ids are not opaque -- `tcgdex-mep-014-holo` says which
+     * upstream card it is and how it was printed -- so a copy whose catalog rows have
+     * gone can be rebuilt from the published catalog without asking the network anything.
+     *
+     * Matched longest suffix first. A finish and an edition are two segments and a finish
+     * alone is one, so testing the short form first would read `holo-first_edition` as an
+     * unlimited card belonging to a set called "...-holo".
+     */
+    fun decompose(variantId: VariantId): Decomposed? {
+        val body = variantId.value.removePrefix("tcgdex-")
+        if (body == variantId.value) return null
+
+        val candidates = buildList {
+            for (finish in Finish.entries) {
+                for (edition in Edition.entries) {
+                    val suffix = buildString {
+                        append(finish.name.lowercase())
+                        if (edition != Edition.UNLIMITED) append("-").append(edition.name.lowercase())
+                    }
+                    add(Triple(suffix, finish, edition))
+                }
+            }
+        }.sortedByDescending { it.first.length }
+
+        for ((suffix, finish, edition) in candidates) {
+            val marker = "-$suffix"
+            if (body.endsWith(marker)) {
+                val remoteId = body.dropLast(marker.length)
+                if (remoteId.isNotEmpty()) return Decomposed(remoteId, finish, edition)
+            }
+        }
+        return null
+    }
+
+    /** What a variant id was made of. */
+    data class Decomposed(val remoteId: String, val finish: Finish, val edition: Edition)
+
+    /**
      * One pocket per card, each in the press run that card was actually printed in.
      *
      * The plainest finish that exists, which is not the same as the plainest finish. Most
@@ -268,13 +309,13 @@ object CardImport {
         )
     }
 
-    private fun supertypeOf(category: String?): Supertype = when (category?.lowercase()) {
+    fun supertypeOf(category: String?): Supertype = when (category?.lowercase()) {
         "trainer" -> Supertype.TRAINER
         "energy" -> Supertype.ENERGY
         else -> Supertype.POKEMON
     }
 
-    private fun typeOf(raw: String): PokemonType? = when (raw.lowercase()) {
+    fun typeOf(raw: String): PokemonType? = when (raw.lowercase()) {
         "grass" -> PokemonType.GRASS
         "fire" -> PokemonType.FIRE
         "water" -> PokemonType.WATER

@@ -1,5 +1,9 @@
 package app.pocketful.data
 
+import app.pocketful.domain.Variant
+import app.pocketful.domain.SlotContent
+import app.pocketful.domain.CardId
+import app.pocketful.domain.Card
 import app.pocketful.domain.CollectionSnapshot
 import app.pocketful.domain.Finish
 import app.pocketful.domain.Money
@@ -194,6 +198,89 @@ class CatalogSync(private val api: TcgDex) {
             if (merged != printing) filled[printing.id] = merged
         }
         return filled
+    }
+
+    /**
+     * Rebuilds catalog rows for cards the collection references but no longer has.
+     *
+     * The collection is stored as two files: what you own, and the slice of the catalog
+     * those things are described by. Lose the second and the first survives as a list of
+     * ids pointing at nothing -- the right number of cards, every one of them nameless.
+     * That is a poor trade for a file the app can reconstruct, and it is reconstructible
+     * because a variant id is not opaque: `tcgdex-mep-014-holo` names its own card, and
+     * the published catalog on disk holds all 23,548 of them.
+     *
+     * So this asks the network nothing. It is a repair, run at every launch, and on the
+     * overwhelmingly normal launch where nothing is missing it does no work at all.
+     *
+     * Prices are not rebuilt here. They are not in the published catalog and they are not
+     * a fact about the card; the sync that follows fetches them, and a card that is briefly
+     * unpriced is a card with a dash next to it rather than a card that is gone.
+     */
+    fun recoverOrphans(snapshot: CollectionSnapshot): Recovered {
+        // Everything the collection actually points at, owned or merely wanted.
+        val referenced = buildSet {
+            snapshot.copies.values.forEach { add(it.variantId) }
+            for (binder in snapshot.binders) {
+                for (slot in binder.paddedSlots) if (slot is SlotContent.Wanted) add(slot.variantId)
+            }
+        }
+        val orphans = referenced.filter { it !in snapshot.variants }
+        if (orphans.isEmpty()) return Recovered()
+
+        val sets = api.publishedSetIndex() ?: return Recovered()
+        val cards = mutableMapOf<CardId, Card>()
+        val printings = mutableMapOf<PrintingId, Printing>()
+        val variants = mutableMapOf<VariantId, Variant>()
+
+        for (variantId in orphans) {
+            val parts = CardImport.decompose(variantId) ?: continue
+            val published = api.publishedCard(parts.remoteId) ?: continue
+            val setId = parts.remoteId.substringBeforeLast('-', missingDelimiterValue = "")
+            val set = sets[setId]
+
+            val cardId = CardImport.cardId(parts.remoteId)
+            val printingId = CardImport.printingId(parts.remoteId)
+
+            cards[cardId] = Card(
+                id = cardId,
+                name = published.name,
+                supertype = CardImport.supertypeOf(published.category),
+                hp = published.hp,
+                types = published.types.mapNotNull(CardImport::typeOf),
+                flavorText = published.description,
+            )
+            printings[printingId] = Printing(
+                id = printingId,
+                cardId = cardId,
+                setCode = setId,
+                setName = set?.name ?: setId,
+                number = published.localId ?: parts.remoteId.substringAfterLast('-'),
+                setTotal = set?.cardCount?.printed?.toString(),
+                rarity = published.rarity,
+                illustrator = published.illustrator,
+                releaseYear = null,
+                imageUrl = published.image,
+                imageAltUrl = published.imageAlt,
+            )
+            variants[variantId] = Variant(
+                id = variantId,
+                printingId = printingId,
+                finish = parts.finish,
+                edition = parts.edition,
+            )
+        }
+        return Recovered(cards, printings, variants)
+    }
+
+    /** Catalog rows rebuilt from the published catalog, for a collection that lost them. */
+    data class Recovered(
+        val cards: Map<CardId, Card> = emptyMap(),
+        val printings: Map<PrintingId, Printing> = emptyMap(),
+        val variants: Map<VariantId, Variant> = emptyMap(),
+    ) {
+        val isEmpty: Boolean get() = variants.isEmpty()
+        val count: Int get() = variants.size
     }
 
     /**

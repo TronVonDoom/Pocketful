@@ -773,6 +773,27 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
         )
     }
 
+    /**
+     * Puts back catalog rows the collection referenced but had lost.
+     *
+     * The one place that adds rows rather than updating them, which is why it is not
+     * [applyCatalogSync]: that method filters its delta down to things the snapshot still
+     * has, precisely so a price arriving late cannot resurrect a card deleted while it was
+     * in flight. A repair needs the opposite rule -- the rows are missing, that is the
+     * whole problem -- so it is a separate method rather than a flag on that one.
+     *
+     * Existing rows win. If a card somehow has both a real entry and a rebuilt one, the
+     * real one is the one the sync has been maintaining.
+     */
+    fun applyRecovery(recovered: CatalogSync.Recovered) {
+        if (recovered.isEmpty) return
+        snapshot = snapshot.copy(
+            cards = recovered.cards + snapshot.cards,
+            printings = recovered.printings + snapshot.printings,
+            variants = recovered.variants + snapshot.variants,
+        )
+    }
+
     /** Writes a freshly quoted market price over whatever was cached for that variant. */
     fun applyPrice(variantId: VariantId, market: Money, fetchedAtEpochSeconds: Long) {
         if (variantId !in snapshot.variants) return
