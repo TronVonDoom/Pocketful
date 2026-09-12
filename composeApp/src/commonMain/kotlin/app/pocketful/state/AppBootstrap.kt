@@ -11,6 +11,8 @@ import app.pocketful.data.CatalogSync
 import app.pocketful.data.PriceDownload
 import app.pocketful.data.TcgDex
 import app.pocketful.data.nowEpochSeconds
+import app.pocketful.domain.PriceSnapshot
+import app.pocketful.domain.VariantId
 import app.pocketful.domain.Printing
 import app.pocketful.domain.PrintingId
 import coil3.ImageLoader
@@ -122,6 +124,7 @@ class AppBootstrap {
         val started = TimeSource.Monotonic.markNow()
         var syncResult: CatalogSync.Result? = null
         var artPrintings: Map<PrintingId, Printing> = emptyMap()
+        var publishedPrices: Map<VariantId, PriceSnapshot> = emptyMap()
 
         // 0. The collection, off disk. Outside the budget below on purpose: that budget
         //    exists to stop a dead network from holding the launch, and this step does
@@ -177,6 +180,16 @@ class AppBootstrap {
                 artFilled = artPrintings.size
             }
 
+            // 1c. Prices, off the same disk. No network, so it runs on every launch and
+            //     finishes in milliseconds however large the collection is. The network
+            //     sync below is then a refinement on a collection that is already priced
+            //     rather than the only thing that prices one -- which is the difference
+            //     between a big collection working and a big collection showing nothing:
+            //     at one request per printing it cannot finish inside the budget.
+            step(PRICING, 0.30f, 0.32f) {
+                publishedPrices = catalogSync.priceFromPublished(store.snapshot, nowEpochSeconds())
+            }
+
             // 1b. The catalog's shape. Everything else that reads a set name -- the sync
             //    below, the search tab, every "Base Set · 102 cards" caption -- is served
             //    from the index this fills, so it goes first and the rest come free.
@@ -226,9 +239,14 @@ class AppBootstrap {
         // The two deltas are merged rather than applied in turn, so the caller still makes
         // exactly one write. Where both touched a printing the network sync wins, and they
         // agree anyway -- both read the fallback artwork from the same published catalog.
-        if (artPrintings.isNotEmpty()) {
+        if (artPrintings.isNotEmpty() || publishedPrices.isNotEmpty()) {
             syncResult = (syncResult ?: CatalogSync.Result(matched = 0, unmatched = 0)).let {
-                it.copy(printings = artPrintings + it.printings)
+                it.copy(
+                    printings = artPrintings + it.printings,
+                    // Published first so a live quote overwrites it. They rarely differ --
+                    // both are TCGplayer -- and where they do, the fetched one is today's.
+                    prices = publishedPrices + it.prices,
+                )
             }
         }
 
@@ -313,6 +331,7 @@ class AppBootstrap {
         const val CATALOG_FILE_STEP = "Getting the card catalog"
         const val REPAIR = "Checking your collection"
         const val ARTWORK_FILL = "Matching your cards to it"
+        const val PRICING = "Pricing your collection"
         const val CATALOG = "Reading the set catalog"
         const val MATCHING = "Matching your cards"
         const val ARTWORK = "Fetching artwork"

@@ -83,6 +83,17 @@ class TcgDex(
     }
 
     /**
+     * What the published file says one card is worth, without asking the network.
+     *
+     * The whole file is on disk and covers 20,064 cards, so pricing an entire collection
+     * is a map lookup per card rather than a round trip per card. That difference is not
+     * academic: a 2,887-card collection needs 1,577 requests through [card], which is
+     * about ninety seconds and therefore does not finish inside the launch budget at all.
+     */
+    fun publishedPrice(cardId: String, finishKeys: List<String>): Long? =
+        prices?.centsFor(cardId, finishKeys)
+
+    /**
      * The published record for one card, if the catalog is here and knows it.
      *
      * Offered so the sync can find the fallback artwork for a card already in someone's

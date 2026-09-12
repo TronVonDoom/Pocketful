@@ -201,6 +201,39 @@ class CatalogSync(private val api: TcgDex) {
     }
 
     /**
+     * Prices the whole collection from the published file, asking the network nothing.
+     *
+     * The counterpart to [fillArtFromCatalog], and it exists for the same reason: the app
+     * already holds the answer on disk, so paying a round trip per card for it is a cost
+     * with nothing bought. [run] still exists and is still worth running -- it is what
+     * catches a card published since last night's build -- but it is now a refinement on
+     * top of a collection that is already priced rather than the only thing that prices
+     * one.
+     *
+     * That distinction decides whether a large collection works at all. A variant id
+     * carries its own card id, so this is a map lookup per variant and completes in
+     * milliseconds for thousands of cards; [run] is one request per printing, which for
+     * 1,577 printings is about ninety seconds and does not fit in the launch budget.
+     */
+    fun priceFromPublished(
+        snapshot: CollectionSnapshot,
+        nowEpochSeconds: Long = 0L,
+    ): Map<VariantId, PriceSnapshot> {
+        val priced = mutableMapOf<VariantId, PriceSnapshot>()
+        for (variant in snapshot.variants.values) {
+            val parts = CardImport.decompose(variant.id) ?: continue
+            val cents = api.publishedPrice(parts.remoteId, priceKeysFor(variant.finish)) ?: continue
+            priced[variant.id] = PriceSnapshot(
+                variantId = variant.id,
+                market = Money(cents),
+                source = "tcgplayer",
+                fetchedAtEpochSeconds = nowEpochSeconds,
+            )
+        }
+        return priced
+    }
+
+    /**
      * Rebuilds catalog rows for cards the collection references but no longer has.
      *
      * The collection is stored as two files: what you own, and the slice of the catalog
