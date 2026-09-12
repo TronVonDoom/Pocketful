@@ -448,6 +448,41 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
             .reconcileLocations()
     }
 
+    /**
+     * Exchanges what is in two pockets.
+     *
+     * Move and swap are the same operation, which is the whole reason this is one method
+     * rather than two. Dropping a card on an empty pocket is an exchange with
+     * [SlotContent.Empty]; dropping it on an occupied one exchanges the two cards. Writing
+     * it as "move, and if something was already there, displace it" would need somewhere
+     * to put the displaced card and would invent a rule about where -- the card you were
+     * holding came *from* somewhere, and that somewhere is exactly the right place for it.
+     *
+     * Content-level rather than copy-level, so it carries wanted pockets and spacers as
+     * readily as owned cards. A binder is an arrangement, and rearranging it should not
+     * care which kind of thing is in the pocket.
+     */
+    fun swapSlots(binderId: BinderId, from: Int, to: Int) {
+        if (from == to) return
+        val binder = snapshot.binder(binderId) ?: return
+        if (from !in 0 until binder.capacity || to !in 0 until binder.capacity) return
+        val slots = binder.paddedSlots
+        val moving = slots.getOrNull(from) ?: return
+        val displaced = slots.getOrNull(to) ?: return
+        // Two empties exchange to exactly what was there. Caught here so the gesture can
+        // be forgiving about where it lands without every stray drop writing a snapshot.
+        if (moving == SlotContent.Empty && displaced == SlotContent.Empty) return
+        snapshot = snapshot
+            .copy(
+                binders = snapshot.binders.map { candidate ->
+                    if (candidate.id == binderId) candidate.swap(from, to) else candidate
+                },
+            )
+            // Both copies changed pocket, and Copy.location has to be told. Skipping this
+            // is how a card ends up drawn in its new pocket and filed under its old one.
+            .reconcileLocations()
+    }
+
     fun setSpacer(binderId: BinderId, ordinal: Int, label: String?) {
         snapshot = snapshot
             .writeSlot(binderId, ordinal, SlotContent.Spacer(label?.trim()?.takeIf { it.isNotBlank() }))

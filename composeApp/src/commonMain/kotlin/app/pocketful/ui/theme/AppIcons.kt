@@ -231,6 +231,28 @@ object AppIcons {
         }
     }
 
+    /** Four arrows from a centre: pick this up and put it somewhere else. */
+    val Move: ImageVector by lazy {
+        strokeIcon("move") {
+            moveTo(12f, 3.5f)
+            lineTo(12f, 20.5f)
+            moveTo(3.5f, 12f)
+            lineTo(20.5f, 12f)
+            moveTo(9.2f, 6.3f)
+            lineTo(12f, 3.5f)
+            lineTo(14.8f, 6.3f)
+            moveTo(9.2f, 17.7f)
+            lineTo(12f, 20.5f)
+            lineTo(14.8f, 17.7f)
+            moveTo(6.3f, 9.2f)
+            lineTo(3.5f, 12f)
+            lineTo(6.3f, 14.8f)
+            moveTo(17.7f, 9.2f)
+            lineTo(20.5f, 12f)
+            lineTo(17.7f, 14.8f)
+        }
+    }
+
     val Check: ImageVector by lazy {
         strokeIcon("check") {
             moveTo(20f, 6.5f)

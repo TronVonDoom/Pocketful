@@ -3,6 +3,7 @@ package app.pocketful.ui.binder
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -29,15 +31,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import app.pocketful.domain.Binder
 import app.pocketful.domain.CollectionSnapshot
 import app.pocketful.domain.Money
 import app.pocketful.domain.SheetSide
 import app.pocketful.domain.SlotContent
+import app.pocketful.domain.SlotView
 import app.pocketful.domain.ValueSummary
 import app.pocketful.state.display
 import app.pocketful.state.displayOrNull
@@ -46,6 +56,8 @@ import app.pocketful.ui.components.CARD_ASPECT_RATIO
 import app.pocketful.ui.components.CircleIconButton
 import app.pocketful.ui.components.HeaderAction
 import app.pocketful.ui.components.PocketSlot
+import app.pocketful.ui.components.PocketDrag
+import app.pocketful.ui.components.cardShape
 import app.pocketful.ui.components.ScreenBackdrop
 import app.pocketful.ui.components.ScreenHeader
 import app.pocketful.ui.components.SelectionAction
@@ -62,6 +74,7 @@ import app.pocketful.ui.theme.AppIcons
 import app.pocketful.ui.theme.AppShape
 import app.pocketful.ui.theme.Ink
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * One binder, one face at a time. A phone has no room for a two-page spread, so the
@@ -82,6 +95,8 @@ fun BinderPageScreen(
     /** Flags or unflags the selected filled pockets as up for trade. */
     onSetForTrade: (Set<Int>, Boolean) -> Unit,
     onClearSlots: (Set<Int>) -> Unit,
+    /** Exchanges two pockets, which is both the move and the swap. */
+    onSwapSlots: (from: Int, to: Int) -> Unit,
     modifier: Modifier = Modifier,
     initialOrdinal: Int? = null,
 ) {
@@ -105,6 +120,15 @@ fun BinderPageScreen(
     // everything else in the app selects -- hold one, tap the rest -- and the island that
     // replaces the page control acts on all of them at once.
     var selection by remember(binder.id) { mutableStateOf(emptySet<Int>()) }
+
+    // The pocket picked up to be moved to another page.
+    //
+    // Dragging cannot cross a page: the gesture belongs to the card the moment it is held,
+    // and the pager needs that same sideways movement to turn the page, so one of the two
+    // has to give. Carrying sidesteps the fight entirely -- the card waits while you turn
+    // to wherever it is going, by swipe or by the page control, and lands on a tap. It is
+    // also the only thing that works at all when the destination is fourteen pages away.
+    var carrying by remember(binder.id) { mutableStateOf<Int?>(null) }
     var confirmingWanted by remember { mutableStateOf(false) }
     val selecting = selection.isNotEmpty()
 
@@ -173,10 +197,23 @@ fun BinderPageScreen(
                     faceIndex = faceIndex,
                     selection = selection,
                     selecting = selecting,
+                    carrying = carrying,
                     onSlotClick = { ordinal ->
-                        if (selecting) selection = selection.toggled(ordinal) else onSlotClick(ordinal)
+                        val held = carrying
+                        when {
+                            // Dropping comes first. While a card is in hand every pocket is
+                            // a destination, and opening a pocket sheet under a held card
+                            // would leave it held behind a sheet with no way to put it down.
+                            held != null -> {
+                                if (held != ordinal) onSwapSlots(held, ordinal)
+                                carrying = null
+                            }
+                            selecting -> selection = selection.toggled(ordinal)
+                            else -> onSlotClick(ordinal)
+                        }
                     },
                     onSlotLongClick = { ordinal -> selection = selection.toggled(ordinal) },
+                    onSwap = onSwapSlots,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(start = 14.dp, end = 14.dp, top = 4.dp, bottom = islandBottomInset()),
@@ -256,6 +293,19 @@ fun BinderPageScreen(
                     },
                 )
                 SelectionAction(
+                    icon = AppIcons.Move,
+                    label = "Move",
+                    // One pocket only. Two cards cannot be put down in the same place, and
+                    // a rule for where the rest land would be a rule nobody asked for --
+                    // moving a run is a different feature with a different gesture.
+                    enabled = selection.size == 1,
+                    onClick = {
+                        carrying = selection.firstOrNull()
+                        selection = emptySet()
+                    },
+                    tint = if (selection.size == 1) Ink.Accent else Ink.TextTertiary,
+                )
+                SelectionAction(
                     icon = AppIcons.Minus,
                     label = "Empty",
                     onClick = {
@@ -265,7 +315,17 @@ fun BinderPageScreen(
                 )
             }
         } else {
-            PageIsland(
+            Column(
+                Modifier.align(Alignment.BottomCenter),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                carrying?.let { held ->
+                    CarryBanner(
+                        view = snapshot.view(binder.paddedSlots.getOrElse(held) { SlotContent.Empty }),
+                        onCancel = { carrying = null },
+                    )
+                }
+                PageIsland(
                 binder = binder,
                 faceIndex = pagerState.currentPage,
                 // What the page you are looking at is worth, as opposed to the whole
@@ -282,8 +342,8 @@ fun BinderPageScreen(
                     if (target < binder.faceCount) scope.launch { pagerState.animateScrollToPage(target) }
                 },
                 onJump = { jumpVisible = true },
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
+                )
+            }
         }
     }
 
@@ -293,6 +353,10 @@ fun BinderPageScreen(
         confirmingWanted = false
         selection = emptySet()
     }
+
+    // Ahead of the binder's own back handler for the same reason the selection one is:
+    // backing out of "I am moving this card" should put the card down, not leave the page.
+    SystemBackHandler(enabled = carrying != null) { carrying = null }
 
     SystemBackHandler(enabled = jumpVisible) { jumpVisible = false }
 
@@ -381,12 +445,22 @@ private fun BinderFace(
     faceIndex: Int,
     selection: Set<Int>,
     selecting: Boolean,
+    /** The pocket being carried across pages, if one is, so it can be shown lifted. */
+    carrying: Int?,
     onSlotClick: (Int) -> Unit,
     onSlotLongClick: (Int) -> Unit,
+    onSwap: (from: Int, to: Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val layout = binder.layout
     val contents = remember(binder, faceIndex) { binder.face(faceIndex) }
+
+    // Which pocket is being dragged, and how far it has travelled from where it started.
+    // Held here rather than in the screen because it dies with the page: a drag cannot
+    // outlive the face it started on, since the pager owns sideways movement everywhere
+    // except inside a drag that has already claimed it.
+    var dragFrom by remember(binder.id, faceIndex) { mutableStateOf<Int?>(null) }
+    var dragOffset by remember(binder.id, faceIndex) { mutableStateOf(Offset.Zero) }
 
     // Top-aligned rather than centred. A page narrower than the space it is given -- any
     // page, on a phone, since width always runs out first -- was leaving its slack split
@@ -400,6 +474,38 @@ private fun BinderFace(
         val usableW = maxWidth - pagePadding * 2 - gap * (layout.cols - 1)
         val usableH = maxHeight - pagePadding * 2 - gap * (layout.rows - 1)
         val cell = minOf(usableW / layout.cols, (usableH / layout.rows) * CARD_ASPECT_RATIO)
+        val cellH = cell / CARD_ASPECT_RATIO
+
+        // The same geometry the grid is laid out from, in pixels, so working out which
+        // pocket a finger is over is arithmetic rather than a question for the layout
+        // system. Nothing has to register its bounds and no drop target has to exist as a
+        // separate thing -- the grid already knows exactly where every pocket is.
+        val density = LocalDensity.current
+        val cellPx = with(density) { cell.toPx() }
+        val cellHPx = with(density) { cellH.toPx() }
+        val gapPx = with(density) { gap.toPx() }
+        val padPx = with(density) { pagePadding.toPx() }
+        // The page is centred in whatever width it is given, so everything measured from
+        // its left edge has to start there rather than at the screen's.
+        val pageW = pagePadding * 2 + cell * layout.cols + gap * (layout.cols - 1)
+        val leftPx = with(density) { ((maxWidth - pageW) / 2).coerceAtLeast(0.dp).toPx() }
+
+        /** Where a pocket's top-left corner sits, in the same space the drag is measured in. */
+        fun cornerOf(ordinal: Int): Offset {
+            val at = layout.locate(ordinal)
+            return Offset(
+                leftPx + padPx + at.col * (cellPx + gapPx),
+                padPx + at.row * (cellHPx + gapPx),
+            )
+        }
+
+        /** The pocket under a point, or null if it is off the grid or in a gutter. */
+        fun pocketAt(point: Offset): Int? {
+            val col = ((point.x - leftPx - padPx) / (cellPx + gapPx)).toInt()
+            val row = ((point.y - padPx) / (cellHPx + gapPx)).toInt()
+            if (col < 0 || col >= layout.cols || row < 0 || row >= layout.rows) return null
+            return layout.ordinalOf(faceIndex, row, col)
+        }
 
         Column(
             Modifier
@@ -414,20 +520,125 @@ private fun BinderFace(
                     repeat(layout.cols) { col ->
                         val indexInFace = row * layout.cols + col
                         val ordinal = layout.ordinalOf(faceIndex, row, col)
+                        val lifted = ordinal == dragFrom || ordinal == carrying
                         PocketSlot(
                             view = snapshot.view(contents[indexInFace]),
-                            modifier = Modifier.width(cell),
+                            // The pocket a card has left reads as empty while it is out,
+                            // so the page shows where it would land rather than showing
+                            // the card in two places at once.
+                            modifier = Modifier.width(cell).alpha(if (lifted) 0.25f else 1f),
                             selecting = selecting,
                             selected = ordinal in selection,
                             onLongClick = { onSlotLongClick(ordinal) },
                             onClick = { onSlotClick(ordinal) },
+                            drag = PocketDrag(
+                                onStart = {
+                                    dragFrom = ordinal
+                                    dragOffset = Offset.Zero
+                                },
+                                onDelta = { dragOffset += it },
+                                // Both endings run the same test, because a hold that is
+                                // released without moving arrives here as a *cancel*
+                                // rather than an end -- the detector reports "no drag
+                                // happened", which is exactly the gesture that means
+                                // select. Reading only onEnd left a long press doing
+                                // nothing at all.
+                                onEnd = {
+                                    val from = dragFrom
+                                    dragFrom = null
+                                    if (from != null) {
+                                        // A hold that never moved is a hold, not a drag.
+                                        // That one test is what lets the same gesture both
+                                        // start a selection and pick a card up, which is
+                                        // the only reason long-press can keep doing what it
+                                        // already did on this screen.
+                                        if (dragOffset.getDistance() < TAP_SLOP_PX) {
+                                            onSlotLongClick(from)
+                                        } else {
+                                            val centre = cornerOf(from) +
+                                                Offset(cellPx / 2f, cellHPx / 2f) + dragOffset
+                                            pocketAt(centre)?.let { onSwap(from, it) }
+                                        }
+                                    }
+                                    dragOffset = Offset.Zero
+                                },
+                                onCancel = {
+                                    val from = dragFrom
+                                    dragFrom = null
+                                    // Only the motionless case selects. A drag that is
+                                    // genuinely interrupted -- a second finger, a system
+                                    // gesture -- puts the card back rather than dropping
+                                    // it somewhere nobody aimed at.
+                                    if (from != null && dragOffset.getDistance() < TAP_SLOP_PX) {
+                                        onSlotLongClick(from)
+                                    }
+                                    dragOffset = Offset.Zero
+                                },
+                            ),
                         )
                     }
                 }
             }
         }
+
+        // The card in hand, drawn over the grid rather than inside the pocket it came
+        // from: a child cannot paint outside its parent, and a card that stopped at the
+        // edge of its own pocket would not be a drag at all. Non-interactive, so the
+        // pointer stays with the pocket that started the gesture.
+        val lifting = dragFrom
+        if (lifting != null) {
+            val corner = cornerOf(lifting) + dragOffset
+            val over = pocketAt(corner + Offset(cellPx / 2f, cellHPx / 2f))
+            Box(
+                Modifier
+                    // Measured from the page's own top-left. Without this the box inherits
+                    // the parent's TopCenter alignment and is centred *before* the offset
+                    // lands, so the card floats a column to the right of the finger while
+                    // dropping correctly -- the drawing and the arithmetic disagreeing.
+                    .align(Alignment.TopStart)
+                    .offset { IntOffset(corner.x.roundToInt(), corner.y.roundToInt()) }
+                    .width(cell)
+                    .zIndex(1f)
+                    // Scaled up a little and made slightly transparent, which is the whole
+                    // vocabulary of "picked up" -- the pocket underneath stays readable, so
+                    // you can see what you are about to swap with.
+                    .graphicsLayer {
+                        scaleX = 1.06f
+                        scaleY = 1.06f
+                        alpha = 0.92f
+                    },
+            ) {
+                PocketSlot(
+                    view = snapshot.view(binder.paddedSlots.getOrElse(lifting) { SlotContent.Empty }),
+                    modifier = Modifier.width(cell),
+                )
+            }
+
+            // Ringed rather than filled, so the card being dragged over it stays legible.
+            if (over != null && over != lifting) {
+                val target = cornerOf(over)
+                Box(
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .offset { IntOffset(target.x.roundToInt(), target.y.roundToInt()) }
+                        .width(cell)
+                        .aspectRatio(CARD_ASPECT_RATIO)
+                        .border(2.dp, Ink.Accent, cardShape(cell)),
+                )
+            }
+        }
     }
 }
+
+/**
+ * How far a finger may wander during a hold and still count as a hold.
+ *
+ * This is the whole boundary between the two gestures a long press now carries: under it
+ * the press selects the pocket, over it the card has been picked up. Generous, because a
+ * finger resting on glass for half a second is never perfectly still and the cost of
+ * guessing wrong is a card that moves when someone meant to tick it.
+ */
+private const val TAP_SLOP_PX = 24f
 
 /**
  * What the cards on one page are worth.
@@ -451,6 +662,51 @@ private fun Set<Int>.toggled(ordinal: Int): Set<Int> =
  * The page-turn island. Deliberately the same object as the navigation island it replaces
  * -- one floating control at the bottom of the screen, whatever the screen happens to be.
  */
+/**
+ * The card in hand, waiting for a pocket.
+ *
+ * Above the page control rather than instead of it. Carrying exists to cross pages, so
+ * taking away the thing that turns pages while a card is being carried would remove the
+ * only reason to carry one.
+ */
+@Composable
+private fun CarryBanner(
+    view: SlotView,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val name = (view as? SlotView.CardSlot)?.name
+    IslandSurface(modifier.padding(bottom = 8.dp), horizontalPadding = 14.dp) {
+        Box(Modifier.width(26.dp)) { PocketSlot(view = view, modifier = Modifier.width(26.dp)) }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = name ?: "Moving this pocket",
+                color = Ink.TextPrimary,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "Turn to a page and tap a pocket",
+                color = Ink.TextTertiary,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        CircleIconButton(
+            icon = AppIcons.Close,
+            contentDescription = "Stop moving this card",
+            onClick = onCancel,
+            size = 32.dp,
+            background = Ink.SurfaceHigh,
+            tint = Ink.TextSecondary,
+            border = Color.Transparent,
+        )
+    }
+}
+
 @Composable
 private fun PageIsland(
     binder: Binder,

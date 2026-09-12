@@ -3,6 +3,9 @@ package app.pocketful.ui.components
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -17,6 +20,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -29,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -69,6 +75,21 @@ fun cardShape(width: Dp): RoundedCornerShape = RoundedCornerShape(cardCorner(wid
  * The corner is measured from the pocket's own width rather than fixed, so a 4-pocket
  * page and a 16-pocket page both draw cards cut the way real ones are.
  */
+/**
+ * What a pocket reports while it is being dragged out of place.
+ *
+ * Deltas rather than absolute positions, because a pocket has no idea where it sits on the
+ * page -- the grid does, and it is the grid that has to decide which pocket the finger is
+ * over. Passed as one object so enabling drag is one argument rather than four, and so
+ * every screen that draws a pocket without rearranging it ignores a single default.
+ */
+data class PocketDrag(
+    val onStart: () -> Unit,
+    val onDelta: (Offset) -> Unit,
+    val onEnd: () -> Unit,
+    val onCancel: () -> Unit,
+)
+
 @Composable
 fun PocketSlot(
     view: SlotView,
@@ -78,8 +99,26 @@ fun PocketSlot(
     selected: Boolean = false,
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit = {},
+    /**
+     * Drag-to-rearrange. Null leaves the pocket exactly as it was.
+     *
+     * When it is set, the long press belongs to the drag detector rather than to
+     * [onLongClick] -- both cannot own the same gesture, and a hold that both selected the
+     * pocket *and* picked it up would do two things at once. What a hold *means* is then
+     * decided by whether it moves, which only the grid can see, so [onLongClick] is left
+     * for the grid to call from [PocketDrag.onEnd].
+     */
+    drag: PocketDrag? = null,
 ) {
     val settings = LocalAppSettings.current
+
+    // Whether the long-press detector has claimed the touch that is currently down.
+    //
+    // Needed because a `combinedClickable` with no long-click handler treats a long hold
+    // as an ordinary click and fires it on release -- so without this, holding a pocket
+    // and letting go opened the pocket sheet instead of selecting, and the hold that
+    // starts a drag would fire a click as well.
+    val heldForDrag = remember { mutableStateOf(false) }
 
     BoxWithConstraints(modifier = modifier.aspectRatio(CARD_ASPECT_RATIO)) {
         val corner = cardCorner(maxWidth)
@@ -89,7 +128,43 @@ fun PocketSlot(
             Modifier
                 .fillMaxSize()
                 .clip(shape)
-                .tappable(pressScale = 0.94f, onLongClick = onLongClick, onClick = onClick),
+                .then(
+                    if (drag == null) {
+                        Modifier
+                    } else {
+                        // Reset first, and passively: every fresh touch starts as "not a
+                        // drag", so a flag left set by a gesture that ended without a
+                        // click cannot go on to swallow the next real tap. Nothing is
+                        // consumed here, so the detectors below still see everything.
+                        Modifier.pointerInput(Unit) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                heldForDrag.value = false
+                            }
+                        }.pointerInput(drag) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = {
+                                    heldForDrag.value = true
+                                    drag.onStart()
+                                },
+                                onDrag = { change, delta ->
+                                    // Claimed, or the pager underneath reads the sideways
+                                    // part of the drag as a page turn and the card gets
+                                    // dragged off a page that is sliding out from under it.
+                                    change.consume()
+                                    drag.onDelta(delta)
+                                },
+                                onDragEnd = { drag.onEnd() },
+                                onDragCancel = { drag.onCancel() },
+                            )
+                        }
+                    },
+                )
+                .tappable(
+                    pressScale = 0.94f,
+                    onLongClick = if (drag == null) onLongClick else null,
+                    onClick = { if (!heldForDrag.value) onClick() },
+                ),
         ) {
             // Unpicked pockets step back rather than picked ones lighting up. A page of
             // sixteen cards is already the brightest thing in the app; adding a highlight

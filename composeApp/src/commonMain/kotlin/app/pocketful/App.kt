@@ -463,6 +463,7 @@ fun App() {
                                         store.setSlotsForTrade(binder.id, ordinals, forTrade)
                                     },
                                     onClearSlots = { ordinals -> store.clearSlots(binder.id, ordinals) },
+                                    onSwapSlots = { from, to -> store.swapSlots(binder.id, from, to) },
                                 )
                             }
                         }
