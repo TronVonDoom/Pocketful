@@ -1,5 +1,12 @@
 package app.pocketful.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -190,17 +197,44 @@ fun ScreenHeader(
             // here is the single biggest thing that used to push content off the bottom
             // of the first screenful.
             Row(verticalAlignment = Alignment.Bottom) {
-                Text(
-                    text = headline,
-                    color = Ink.TextPrimary,
-                    style = if (centered && title == null) {
-                        MaterialTheme.typography.displayMedium
-                    } else {
-                        MaterialTheme.typography.displaySmall
+                // The one number a screen is about, and the one that changes under you:
+                // a card is added, a sync lands, a price moves. Counting it up reads as
+                // the figure being recalculated; swapping the glyphs instantly reads as
+                // the screen having been rebuilt behind your back. Upwards for a rise and
+                // downwards for a fall, so the direction is legible before the digits are.
+                AnimatedContent(
+                    targetState = headline,
+                    transitionSpec = {
+                        // Compared as text, because that is all a header has: the figure
+                        // arrives already formatted, grouped and possibly abbreviated. A
+                        // longer string is a larger number ("$1,204.00" over "$980.00")
+                        // and same-length strings order correctly digit by digit, which
+                        // is right often enough for a 260ms cue about direction.
+                        val rising =
+                            compareValuesBy(targetState, initialState, { it.length }, { it }) > 0
+                        val distance = if (rising) 1 else -1
+                        (
+                            slideInVertically(tween(260)) { height -> distance * height / 3 } +
+                                fadeIn(tween(200))
+                            ).togetherWith(
+                            slideOutVertically(tween(260)) { height -> -distance * height / 3 } +
+                                fadeOut(tween(140)),
+                        )
                     },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                    label = "headline",
+                ) { shown ->
+                    Text(
+                        text = shown,
+                        color = Ink.TextPrimary,
+                        style = if (centered && title == null) {
+                            MaterialTheme.typography.displayMedium
+                        } else {
+                            MaterialTheme.typography.displaySmall
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 summary?.let {
                     Spacer(Modifier.width(9.dp))
                     GainChip(it, Modifier.padding(bottom = 4.dp))

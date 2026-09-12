@@ -137,9 +137,15 @@ fun CollectionsScreen(
                     eyebrow = "Collection",
                     centered = true,
                     headline = total.marketValue.displayOrDash(total.currency),
-                    headlineCaption = "stored across " +
-                        "${snapshot.binders.size + snapshot.containers.size} " +
-                        (if (snapshot.binders.size + snapshot.containers.size == 1) "place" else "places"),
+                    headlineCaption = buildString {
+                        val places = snapshot.binders.size + snapshot.containers.size
+                        append("stored across $places ")
+                        append(if (places == 1) "place" else "places")
+                        // Same rule as the portfolio: a total that cannot include every
+                        // currency says so rather than letting the headline stand for
+                        // more than it covers.
+                        total.alsoLabel?.let { append(" · also $it") }
+                    },
                     summary = total,
                     stats = buildList {
                         add(Stat("${total.ownedCount}", "cards"))
@@ -198,7 +204,7 @@ fun CollectionsScreen(
                 // the empty half of the last row instead of forcing a row of its own.
                 val binderRows = (snapshot.binders.map<Binder, Any> { it } + AddSlot).chunked(2)
                 items(binderRows.size, key = { index -> "binder-row-$index" }) { index ->
-                    TilePair {
+                    TilePair(Modifier.animateItem()) {
                         binderRows[index].forEach { entry ->
                             when (entry) {
                                 is Binder -> BinderTile(
@@ -244,7 +250,7 @@ fun CollectionsScreen(
             } else {
                 val containerRows = (snapshot.containers.map<Container, Any> { it } + AddSlot).chunked(2)
                 items(containerRows.size, key = { index -> "container-row-$index" }) { index ->
-                    TilePair {
+                    TilePair(Modifier.animateItem()) {
                         containerRows[index].forEach { entry ->
                             when (entry) {
                                 is Container -> ContainerTile(

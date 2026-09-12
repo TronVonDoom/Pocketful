@@ -1,5 +1,8 @@
 package app.pocketful.ui.binder
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -464,6 +467,26 @@ private fun BinderFace(
     var dragFrom by remember(binder.id, faceIndex) { mutableStateOf<Int?>(null) }
     var dragOffset by remember(binder.id, faceIndex) { mutableStateOf(Offset.Zero) }
 
+    // A card let go over nothing -- the margin, the header, the gap below the page --
+    // travels back to the pocket it came from instead of blinking out of existence. The
+    // whole point of a drag is that the card is a thing you are holding, and a thing you
+    // drop either lands somewhere or comes back; vanishing is neither.
+    val settleScope = rememberCoroutineScope()
+    var settleFrom by remember(binder.id, faceIndex) { mutableStateOf<Int?>(null) }
+    var settleFrom0 by remember(binder.id, faceIndex) { mutableStateOf(Offset.Zero) }
+    val settle = remember(binder.id, faceIndex) { Animatable(0f) }
+
+    fun releaseHome(from: Int, offset: Offset) {
+        settleFrom = from
+        settleFrom0 = offset
+        settleScope.launch {
+            settle.snapTo(1f)
+            // Slightly bouncy, because it is a card landing rather than a panel closing.
+            settle.animateTo(0f, spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow))
+            settleFrom = null
+        }
+    }
+
     // Top-aligned rather than centred. A page narrower than the space it is given -- any
     // page, on a phone, since width always runs out first -- was leaving its slack split
     // above and below, and the half above sat as a band of nothing between the header and
@@ -522,7 +545,8 @@ private fun BinderFace(
                     repeat(layout.cols) { col ->
                         val indexInFace = row * layout.cols + col
                         val ordinal = layout.ordinalOf(faceIndex, row, col)
-                        val lifted = ordinal == dragFrom || ordinal == carrying
+                        val lifted = ordinal == dragFrom || ordinal == carrying ||
+                            ordinal == settleFrom
                         PocketSlot(
                             view = snapshot.view(contents[indexInFace]),
                             // The pocket a card has left reads as empty while it is out,
@@ -559,7 +583,9 @@ private fun BinderFace(
                                         } else {
                                             val centre = cornerOf(from) +
                                                 Offset(cellPx / 2f, cellHPx / 2f) + dragOffset
-                                            pocketAt(centre)?.let { onSwap(from, it) }
+                                            val onto = pocketAt(centre)
+                                            if (onto != null) onSwap(from, onto)
+                                            else releaseHome(from, dragOffset)
                                         }
                                     }
                                     dragOffset = Offset.Zero
@@ -571,8 +597,12 @@ private fun BinderFace(
                                     // genuinely interrupted -- a second finger, a system
                                     // gesture -- puts the card back rather than dropping
                                     // it somewhere nobody aimed at.
-                                    if (from != null && dragOffset.getDistance() < TAP_SLOP_PX) {
-                                        onSlotLongClick(from)
+                                    if (from != null) {
+                                        if (dragOffset.getDistance() < TAP_SLOP_PX) {
+                                            onSlotLongClick(from)
+                                        } else {
+                                            releaseHome(from, dragOffset)
+                                        }
                                     }
                                     dragOffset = Offset.Zero
                                 },
@@ -587,10 +617,11 @@ private fun BinderFace(
         // from: a child cannot paint outside its parent, and a card that stopped at the
         // edge of its own pocket would not be a drag at all. Non-interactive, so the
         // pointer stays with the pocket that started the gesture.
-        val lifting = dragFrom
+        val lifting = dragFrom ?: settleFrom
         if (lifting != null) {
-            val corner = cornerOf(lifting) + dragOffset
-            val over = pocketAt(corner + Offset(cellPx / 2f, cellHPx / 2f))
+            val travel = if (dragFrom != null) dragOffset else settleFrom0 * settle.value
+            val corner = cornerOf(lifting) + travel
+            val over = if (dragFrom == null) null else pocketAt(corner + Offset(cellPx / 2f, cellHPx / 2f))
             Box(
                 Modifier
                     // Measured from the page's own top-left. Without this the box inherits

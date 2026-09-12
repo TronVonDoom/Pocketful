@@ -145,6 +145,7 @@ fun AddToContainerSheet(
             ) {
                 items(visibleRows, key = { it.copy.id.value }) { row ->
                     PickRow(
+                        modifier = Modifier.animateItem(),
                         row = row,
                         selected = row.copy.id in picked,
                         onToggle = {
@@ -181,9 +182,10 @@ private fun PickRow(
     row: CopyRow,
     selected: Boolean,
     onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Box(
-        Modifier
+        modifier
             .fillMaxWidth()
             .clip(AppShape.Medium)
             .border(2.dp, if (selected) Ink.Accent else Color.Transparent, AppShape.Medium)

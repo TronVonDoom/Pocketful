@@ -314,7 +314,11 @@ fun <T> LazyListScope.tileRows(
         count = rows.size,
         key = { index -> "$keyPrefix-${key(rows[index].first())}" },
     ) { index ->
-        TilePair {
+        // Rows slide rather than jump when the list behind them changes. Every screen
+        // built on this grid is one you filter, sort or delete from, and a tile that
+        // teleports into the gap left by a deleted neighbour reads as a redraw rather
+        // than as the list settling.
+        TilePair(Modifier.animateItem()) {
             rows[index].forEach { entry -> content(entry) }
             if (rows[index].size == 1) TileGap()
         }
