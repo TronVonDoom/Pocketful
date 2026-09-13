@@ -3,40 +3,41 @@ package app.pocketful.data
 /**
  * Card art, addressed by size.
  *
- * TCGdex serves every rendition of a card off one stem -- `.../en/base/base1/4` -- and
- * the caller appends a quality and a format. Keeping that suffix logic here rather than
- * storing a finished URL means a list row can ask for the 20KB webp and a detail sheet
- * for the 360KB png without the catalog holding two strings that can disagree about
- * which card they point at.
+ * The catalog keeps every picture on Cloudflare R2 beside a thumbnail of it:
+ * `images/cards/ptcg-en-base01/ptcg-en-base01-4.3f9a2c.webp` and the same name ending
+ * `.thumb.webp`. The app holds the part the two share -- the *stem*, without the extension --
+ * so a list row asks for the thumbnail and a detail sheet for the full picture without the
+ * catalog carrying two strings that could disagree about which card they show.
  *
- * Some cards have no stem at all. TCGdex has no artwork for about 7% of the catalog in
- * any language, and the published catalog fills what it can from a second source -- those
- * arrive as complete URLs on somebody else's CDN, which take no quality suffix and come
- * in one size. So every accessor here takes both and prefers the stem: a real TCGdex
- * rendition is the right size for the job, and the fallback is what there is otherwise.
+ * Stems are relative. The public address in front of them is the catalog's, read from its
+ * index, so the day the pictures move to another domain nothing stored on the device changes:
+ * only [base] does. [cacheKey] is what the image cache files a picture under for the same
+ * reason -- a new address must not mean downloading every picture again.
+ *
+ * A card with no picture has a card back instead, which is a stem like any other; every
+ * accessor takes both and prefers the card's own.
  */
 object CardArt {
-    /** A list thumbnail. Small enough that a screen of forty rows is one screenful of data. */
-    fun thumb(stem: String?, url: String? = null): String? =
-        stem?.let { "$it/low.webp" } ?: url
+    /** Where the catalog's files are served from. Replaced by the index's own address once it loads. */
+    var base: String = CatalogDownload.BUILT_IN_BASE
 
-    /** Full render, for a pocket blown up or a detail sheet. */
-    fun full(stem: String?, url: String? = null): String? =
-        stem?.let { "$it/high.png" } ?: url
+    /** A list thumbnail. */
+    fun thumb(stem: String?, back: String? = null): String? =
+        (stem ?: back)?.let { "$base/$it.thumb.webp" }
 
-    /**
-     * A set or series logo.
-     *
-     * Logos are the one asset TCGdex serves without a quality step -- the stem takes a
-     * format directly. PNG rather than webp because these are drawn on a dark ground and
-     * the PNG is the one with a transparent background.
-     */
-    fun logo(stem: String?): String? = stem?.let { "$it.png" }
+    /** The full picture, for a pocket blown up or a detail sheet. */
+    fun full(stem: String?, back: String? = null): String? =
+        (stem ?: back)?.let { "$base/$it.webp" }
 
-    /**
-     * What a pocket shows. A binder page draws nine to sixteen of these at once, so it
-     * takes the small one -- at pocket size the high render is invisible detail paid for
-     * in megabytes.
-     */
-    fun pocket(stem: String?, url: String? = null): String? = thumb(stem, url)
+    /** What a pocket shows: the thumbnail, since a page draws nine to sixteen at once. */
+    fun pocket(stem: String?, back: String? = null): String? = thumb(stem, back)
+
+    /** A set or series logo, or a set symbol. These are whole paths; they have no thumbnail. */
+    fun logo(path: String?): String? = path?.let { "$base/$it" }
+
+    /** The key a picture is cached under: its path, not its address. */
+    fun cacheKey(url: String): String = url.removePrefix(base).trimStart('/')
+
+    /** A picture's path without its extension, as the catalog documents' `image` fields are turned into stems. */
+    fun stemOf(path: String?): String? = path?.removeSuffix(".webp")
 }

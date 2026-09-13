@@ -159,6 +159,9 @@ class CollectionTransfer(private val documents: DocumentTransfer) {
         if (export.schema > SAVE_SCHEMA) {
             return Parsed.No("That backup was written by a newer version of Pocketful.")
         }
+        if (export.schema < SAVE_SCHEMA) {
+            return Parsed.No("That backup is from before Pocketful's new card catalog, and its cards cannot be matched to it.")
+        }
         if (export.collection.binders.isEmpty() &&
             export.collection.containers.isEmpty() &&
             export.collection.copies.isEmpty()

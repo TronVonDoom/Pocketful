@@ -79,7 +79,7 @@ class AppUpdates(
             // clients without one. It has not bitten here because Ktor sends its own
             // default, but relying on a library's default to satisfy someone else's
             // stated requirement is a dependency nobody wrote down.
-            install(UserAgent) { agent = TcgDex.USER_AGENT }
+            install(UserAgent) { agent = Network.USER_AGENT }
             install(ContentNegotiation) {
                 json(Json { ignoreUnknownKeys = true; isLenient = true; explicitNulls = false })
             }

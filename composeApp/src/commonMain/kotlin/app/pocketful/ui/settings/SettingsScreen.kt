@@ -80,7 +80,7 @@ fun SettingsScreen(
     var sync by remember { mutableStateOf<SyncState>(SyncState.Idle) }
     val scope = rememberCoroutineScope()
 
-    val withArt = remember(snapshot) { snapshot.printings.values.count { it.imageUrl != null } }
+    val withArt = remember(snapshot) { snapshot.printings.values.count { it.image != null } }
     val priced = remember(snapshot) { snapshot.prices.values.count { it.source == "tcgplayer" } }
 
     val listState = rememberLazyListState()
@@ -180,7 +180,7 @@ fun SettingsScreen(
             item {
                 Panel {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        DetailRow("Catalog", "TCGdex")
+                        DetailRow("Catalog", "Pocketful catalog")
                         DetailRow("With artwork", "$withArt of ${snapshot.printings.size}")
                         DetailRow("Live prices", "$priced of ${snapshot.prices.size}")
                     }
@@ -190,7 +190,7 @@ fun SettingsScreen(
                     when (val state = sync) {
                         is SyncState.Running -> {
                             Text(
-                                text = "Matching your cards against the catalog…",
+                                text = "Updating the catalog and your cards…",
                                 color = Ink.TextSecondary,
                                 style = MaterialTheme.typography.bodyMedium,
                             )
@@ -375,18 +375,17 @@ fun SettingsScreen(
                         DetailRow("Pocketful", AppVersion.label)
                         DetailRow(
                             label = "Price data",
-                            value = if (priced > 0) "TCGdex" else "none yet",
-                            caption = if (priced > 0) "TCGplayer · Cardmarket" else null,
+                            value = if (priced > 0) "TCGplayer" else "none yet",
+                            caption = if (priced > 0) "market price, updated nightly" else null,
                         )
                         DetailRow("Storage", "on this device")
                     }
                     Spacer(Modifier.height(14.dp))
                     Text(
-                        text = "Prices are whatever the catalog last quoted, and only for cards it " +
-                            "could match. TCGplayer is used where it has a figure; where it has none " +
-                            "-- most promos, most Japanese printings -- the Cardmarket price is " +
-                            "converted at the European Central Bank's daily rate, and a card that " +
-                            "was converted says so. Your collection is written to this device as you " +
+                        text = "Cards come from the Pocketful catalog, a set at a time as each is " +
+                            "reviewed and published. Prices are TCGplayer's market price, updated " +
+                            "nightly, for every printing linked to a TCGplayer product; one with no " +
+                            "product shows no price rather than a guess. Your collection is written to this device as you " +
                             "change it, and lives nowhere else -- so a backup is the only copy of it " +
                             "that survives losing the phone.",
                         color = Ink.TextTertiary,
@@ -442,34 +441,25 @@ private fun startSync(
         publish(
             when {
                 result.failure != null -> SyncState.Done(result.failure!!, failed = true)
-                result.matched == 0 -> SyncState.Done(
-                    "None of your cards could be matched to a catalog entry.",
-                    failed = true,
+                result.matched == 0 && result.attempted > 0 -> SyncState.Done(
+                    "The catalog is up to date. None of your cards are in it yet.",
+                    failed = false,
                 )
+                result.attempted == 0 -> SyncState.Done("The catalog is up to date.", failed = false)
                 else -> SyncState.Done(
                     buildString {
-                        append("Matched ")
+                        append("Refreshed ")
                         append(result.matched)
                         append(" of ")
                         append(result.attempted)
-                        append(" cards")
+                        append(" cards from the catalog")
                         if (result.pricesUpdated > 0) {
-                            append(" and repriced ")
+                            append(" and priced ")
                             append(result.pricesUpdated)
                         }
                         append(".")
-                        if (result.rejected > 0) {
-                            append(" ")
-                            append(result.rejected)
-                            append(
-                                if (result.rejected == 1) {
-                                    " card matched an entry under a different name and was skipped."
-                                } else {
-                                    " cards matched entries under different names and were skipped."
-                                },
-                            )
-                        } else if (result.unmatched > 0) {
-                            append(" The rest were left untouched.")
+                        if (result.unmatched > 0) {
+                            append(" Cards you added by hand were left as they are.")
                         }
                     },
                     failed = false,

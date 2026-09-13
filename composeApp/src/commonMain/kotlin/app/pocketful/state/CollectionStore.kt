@@ -6,10 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
-import app.pocketful.data.CardImport
+import app.pocketful.data.CatalogRows
 import app.pocketful.data.CatalogSync
-import app.pocketful.data.RemoteCard
-import app.pocketful.data.SetPocket
 import app.pocketful.domain.Binder
 import app.pocketful.domain.BinderId
 import app.pocketful.domain.BinderLayout
@@ -218,10 +216,11 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
         sheetCount: Int,
         spineColor: Long,
         sourceSetId: String?,
-        pockets: List<SetPocket>,
+        rows: CatalogRows,
+        variantIds: List<VariantId>,
     ): BinderId {
         val safeSheets = sheetCount.coerceAtLeast(1)
-        val (withCatalog, variantIds) = CardImport.stubAll(snapshot, pockets)
+        val withCatalog = snapshot.withRows(rows)
 
         val id = BinderId(mintId("binder") { candidate -> snapshot.binders.any { it.id.value == candidate } })
         val capacity = layout.capacity(safeSheets)
@@ -875,26 +874,24 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
     // ---------------------------------------------------------------- catalog
 
     /**
-     * Files a card fetched from the live catalog, and returns the variant matching
-     * [finish] so the caller can put a copy of it somewhere.
+     * Files a card from the catalog, and returns the variant to put a copy of.
      *
-     * Re-importing the same card is an update, not a duplicate: the ids are derived from
-     * the upstream id, so a second import refreshes art and prices in place.
+     * [preferred] is the printing the caller wants, normally the card's plainest; a printing the
+     * rows do not have falls back to the first one they do, rather than an id that resolves to
+     * nothing. Filing the same card again is an update: the ids are the catalog's own.
      */
-    fun importRemoteCard(
-        card: RemoteCard,
-        finish: Finish,
-        edition: Edition = Edition.UNLIMITED,
-    ): VariantId {
-        snapshot = CardImport.into(snapshot, card, edition)
-        val exact = CardImport.variantId(card, finish, edition)
-        if (exact in snapshot.variants) return exact
-        // The requested finish was not printed. Fall back to whichever one was, rather
-        // than handing back an id that resolves to nothing.
-        return CardImport.finishesOf(card)
-            .firstNotNullOfOrNull { CardImport.variantId(card, it, edition).takeIf { id -> id in snapshot.variants } }
-            ?: exact
+    fun importCatalogRows(rows: CatalogRows, preferred: VariantId?): VariantId? {
+        if (rows.isEmpty) return null
+        snapshot = snapshot.withRows(rows)
+        return preferred?.takeIf { it in rows.variants } ?: rows.variants.keys.firstOrNull()
     }
+
+    /** Catalog rows written over whatever the snapshot had under the same ids. */
+    private fun CollectionSnapshot.withRows(rows: CatalogRows): CollectionSnapshot = copy(
+        cards = cards + rows.cards,
+        printings = printings + rows.printings,
+        variants = variants + rows.variants,
+    )
 
     /**
      * Merges the result of a catalog sync into the live collection.
@@ -904,14 +901,18 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
      * must not be undone by its arrival.
      */
     fun applyCatalogSync(result: CatalogSync.Result) {
-        if (result.printings.isEmpty() && result.prices.isEmpty()) return
+        if (result.cards.isEmpty() && result.printings.isEmpty() && result.variants.isEmpty() && result.prices.isEmpty()) return
+        // Only rows for printings the collection still has: anything deleted mid-refresh stays
+        // deleted rather than being resurrected by its own update. New printings of a card the
+        // collection holds are added, which is how a printing published later reaches it.
+        val keptPrintings = snapshot.printings.keys
+        val keptCards = snapshot.printings.values.mapTo(mutableSetOf()) { it.cardId }
+        val variants = snapshot.variants + result.variants.filterValues { it.printingId in keptPrintings }
         snapshot = snapshot.copy(
-            // Only printings the collection still has. Anything deleted mid-sync stays
-            // deleted rather than being resurrected by its own price update.
-            printings = snapshot.printings + result.printings.filterKeys { it in snapshot.printings },
-            prices = snapshot.prices + result.prices.filterKeys { id ->
-                snapshot.variants[id] != null
-            },
+            cards = snapshot.cards + result.cards.filterKeys { it in keptCards },
+            printings = snapshot.printings + result.printings.filterKeys { it in keptPrintings },
+            variants = variants,
+            prices = snapshot.prices + result.prices.filterKeys { it in variants },
         )
     }
 
@@ -972,9 +973,9 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
         val slug = name.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').ifBlank { "card" }
         val cleanNumber = number.trim().ifBlank { "?" }
 
-        val cardId = CardId(uniqueId("ptcg-$setCode-$slug") { it in snapshot.cards.keys.map(CardId::value) })
+        val cardId = CardId(uniqueId("custom-$setCode-$slug") { it in snapshot.cards.keys.map(CardId::value) })
         val printingId = PrintingId(
-            uniqueId("ptcg-$setCode-$cleanNumber") { it in snapshot.printings.keys.map(PrintingId::value) },
+            uniqueId("custom-$setCode-$cleanNumber") { it in snapshot.printings.keys.map(PrintingId::value) },
         )
         val variantId = VariantId(
             uniqueId("${printingId.value}-${finish.name.lowercase()}") {

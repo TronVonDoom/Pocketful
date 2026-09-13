@@ -64,10 +64,11 @@ import app.pocketful.ui.theme.Ink
 fun CardArtTile(
     name: String,
     caption: String,
-    artStem: String?,
+    /** The picture, as a stem. See [app.pocketful.data.CardArt]. */
+    art: String?,
     onClick: () -> Unit,
-    /** A finished image URL, for the cards TCGdex has no art stem for at all. */
-    artUrl: String? = null,
+    /** The card back to draw when there is no [art]. */
+    back: String? = null,
     modifier: Modifier = Modifier,
     type: PokemonType? = null,
     value: String? = null,
@@ -121,8 +122,8 @@ fun CardArtTile(
             val shape = cardShape(maxWidth)
             Box(Modifier.fillMaxSize().clip(shape)) {
                 CardArtwork(
-                    artStem = artStem,
-                    artUrl = artUrl,
+                    art = art,
+                    back = back,
                     type = type,
                     modifier = Modifier.fillMaxSize().alpha(if (ghosted) 0.34f else 1f),
                     holo = holo && !ghosted,
@@ -276,8 +277,8 @@ fun CardTile(
     CardArtTile(
         name = brief.name,
         caption = caption,
-        artStem = brief.artUrl,
-        artUrl = brief.artAltUrl,
+        art = brief.art,
+        back = brief.back,
         type = brief.type,
         value = value,
         valueColor = valueColor,
@@ -315,8 +316,8 @@ fun CatalogCardTile(
     CardArtTile(
         name = hit.name,
         caption = caption,
-        artStem = hit.artStem,
-        artUrl = hit.artUrl,
+        art = hit.image,
+        back = hit.back,
         value = value,
         valueColor = valueColor,
         badge = badge,

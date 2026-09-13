@@ -73,8 +73,8 @@ fun CatalogCardRow(
                 .border(1.dp, Color.White.copy(alpha = 0.12f), cardShape(width)),
         ) {
             CardArtwork(
-                artStem = hit.artStem,
-                artUrl = hit.artUrl,
+                art = hit.image,
+                back = hit.back,
                 type = null,
                 modifier = Modifier.fillMaxSize(),
             )

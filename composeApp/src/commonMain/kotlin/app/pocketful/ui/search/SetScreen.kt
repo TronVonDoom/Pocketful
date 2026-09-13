@@ -29,9 +29,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import app.pocketful.data.RemoteSet
+import app.pocketful.data.CatalogSet
 import app.pocketful.data.SearchHit
-import app.pocketful.data.game
 import app.pocketful.domain.Binder
 import app.pocketful.domain.BinderLayout
 import app.pocketful.domain.CollectionSnapshot
@@ -93,7 +92,7 @@ enum class SetBuild { SetBinder, MasterSet }
  */
 @Composable
 fun SetScreen(
-    set: RemoteSet,
+    set: CatalogSet,
     browser: CatalogBrowser,
     snapshot: CollectionSnapshot,
     defaultLayout: BinderLayout,
@@ -122,10 +121,6 @@ fun SetScreen(
             compareBy({ it.number.takeWhile(Char::isDigit).toIntOrNull() ?: Int.MAX_VALUE }, { it.number }),
         )
         loading = false
-        // Then, unprompted, the press runs. Both buttons below are built out of them and
-        // neither should be the thing that starts a five-second request -- by the time
-        // anyone has read the header and decided, this is usually already in hand.
-        browser.prefetchVariants(set.id)
     }
 
     // Which cards this collection holds, and which it is holding a pocket open for.
@@ -321,8 +316,8 @@ fun SetScreen(
                 CardArtTile(
                     name = hit.name,
                     caption = hit.collectorNumber,
-                    artStem = hit.artStem,
-                    artUrl = hit.artUrl,
+                    art = hit.image,
+                    back = hit.back,
                     badge = when (standing) {
                         CardStanding.Have -> "HAVE"
                         CardStanding.Want -> "WANT"
@@ -375,7 +370,7 @@ fun SetScreen(
  */
 @Composable
 private fun SetActions(
-    set: RemoteSet,
+    set: CatalogSet,
     cards: List<SearchHit>,
     loading: Boolean,
     building: SetBuild?,
@@ -520,7 +515,7 @@ private fun CompletionBar(have: Int, want: Int, total: Int, modifier: Modifier =
  *
  * So a card is identified by its printed number plus the set it is in -- and the set is
  * offered twice, once by code and once by name, because those are keyed independently.
- * TCGdex files Jungle under `base2` while every human record of it says "Jungle", so
+ * A set's catalog ID and the name a hand-typed record gives it are unrelated strings, so
  * either key alone misses half the cases. Both are generated and any match counts; two
  * different sets would have to share a name *and* a card number to collide.
  */

@@ -57,9 +57,10 @@ enum class TcgGame(
         label = "Pokémon TCG Pocket",
         wordmark = "TCG Pocket",
         publisher = "The Pokémon Company",
-        connected = true,
+        // Not in the Pocketful catalog yet: it is built set by set, printed cards first.
+        connected = false,
         printed = false,
-        note = "The mobile game. Digital cards, no prices",
+        note = "The mobile game. Not in the catalog yet",
     ),
     MAGIC(
         label = "Magic: The Gathering",

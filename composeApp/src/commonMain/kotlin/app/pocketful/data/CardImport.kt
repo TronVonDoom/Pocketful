@@ -2,12 +2,9 @@ package app.pocketful.data
 
 import app.pocketful.domain.Card
 import app.pocketful.domain.CardId
-import app.pocketful.domain.CollectionSnapshot
 import app.pocketful.domain.Edition
 import app.pocketful.domain.Finish
-import app.pocketful.domain.Money
 import app.pocketful.domain.PokemonType
-import app.pocketful.domain.PriceSnapshot
 import app.pocketful.domain.Printing
 import app.pocketful.domain.PrintingId
 import app.pocketful.domain.Supertype
@@ -15,361 +12,172 @@ import app.pocketful.domain.Variant
 import app.pocketful.domain.VariantId
 
 /**
- * One pocket of a binder built from a set: a card, and the press run it is being held
- * open for.
+ * One pocket of a binder built from a set: a card, and the printing it is being held open for.
  *
- * A plain set binder is one pocket per card, so every pocket carries the same finish and
- * this pairing is a formality. A master set is not: the same Charizard needs a holo pocket
- * and a reverse pocket, and those are two different variants at two different prices, so
- * the pocket has to say which of them it is waiting for.
+ * A plain set binder is one pocket per card, in that card's plainest printing. A master set is
+ * every printing of every card, so the same Charizard needs a pocket for its holo, its
+ * shadowless holo and its 1st Edition holo, and the pocket has to say which one it waits for.
  */
-data class SetPocket(val hit: SearchHit, val finish: Finish)
+data class SetPocket(val hit: SearchHit, val printingId: String)
 
 /**
- * Turning a fetched card into catalog rows.
+ * The catalog rows one or more cards turn into.
  *
- * The identity split the app is built on -- card / printing / variant -- has no
- * equivalent upstream: TCGdex returns one document per printing with a `variants` flag
- * set saying which press runs exist. So an import fans one document out into one [Card],
- * one [Printing], and a [Variant] per finish that was actually printed, which is what
- * lets a reverse holo and a plain copy of the same card carry different prices.
- *
- * Ids are derived from the upstream id rather than generated, so importing the same card
- * twice updates it in place instead of quietly creating a second Charizard.
+ * The app keeps four levels -- card, printing, variant, copy -- and the published catalog
+ * lines up with the first three: a catalog *card* is both the app's [Card] and its [Printing]
+ * (they share the card's ID), and each catalog *printing* is a [Variant] under its ID. The IDs
+ * are the catalog's own, so filing the same card twice updates it rather than making a second
+ * one, and a collection keyed by them stays correct for as long as the catalog does.
  */
+data class CatalogRows(
+    val cards: Map<CardId, Card> = emptyMap(),
+    val printings: Map<PrintingId, Printing> = emptyMap(),
+    val variants: Map<VariantId, Variant> = emptyMap(),
+) {
+    operator fun plus(other: CatalogRows) = CatalogRows(
+        cards = cards + other.cards,
+        printings = printings + other.printings,
+        variants = variants + other.variants,
+    )
+
+    val isEmpty: Boolean get() = variants.isEmpty()
+}
+
 object CardImport {
 
-    /** Which TCGplayer price key belongs to which finish, best match first. */
-    fun priceKeys(finish: Finish, firstEdition: Boolean): List<String> = when (finish) {
-        Finish.NON_HOLO -> if (firstEdition) {
-            listOf("1stEditionNormal", "1stEdition", "normal")
-        } else {
-            listOf("normal", "1stEditionNormal")
-        }
-        Finish.HOLO -> if (firstEdition) {
-            listOf("1stEditionHolofoil", "holofoil")
-        } else {
-            listOf("holofoil", "1stEditionHolofoil")
-        }
-        Finish.REVERSE_HOLO -> listOf("reverseHolofoil", "holofoil")
-        Finish.FULL_ART, Finish.TEXTURED, Finish.GOLD, Finish.OTHER ->
-            listOf("holofoil", "normal", "reverseHolofoil")
+    /** Everything one catalog card is, as rows. */
+    fun rowsFor(card: CatalogCard, catalog: CardCatalog): CatalogRows {
+        val c = card.card
+        val set = card.entry.set
+        val language = card.entry.catalog.language
+        val cardId = CardId(c.id)
+        val printingId = PrintingId(c.id)
+
+        val domainCard = Card(
+            id = cardId,
+            name = c.name,
+            supertype = supertypeOf(c.category),
+            subtypes = c.subtypes.map { catalog.termLabel("subtype", it, language) },
+            hp = c.hp,
+            types = c.types.mapNotNull(::typeOf),
+            retreatCost = c.retreat,
+            flavorText = c.flavorText,
+        )
+        val printing = Printing(
+            id = printingId,
+            cardId = cardId,
+            setCode = set.id,
+            setName = set.name,
+            number = c.number,
+            setTotal = null,
+            printedNumber = c.printedNumber,
+            rarity = c.rarity?.let { catalog.termLabel("rarity", it, language) },
+            illustrator = c.illustrator,
+            releaseYear = set.releaseDate?.take(4)?.toIntOrNull(),
+            image = CardArt.stemOf(c.image),
+            back = card.back,
+        )
+        val variants = c.printings.map { variantOf(it, printingId, language, catalog) }
+        return CatalogRows(
+            cards = mapOf(cardId to domainCard),
+            printings = mapOf(printingId to printing),
+            variants = variants.associateBy { it.id },
+        )
     }
 
-    /** Which finishes this printing actually exists in, per the upstream variant flags. */
-    fun finishesOf(card: RemoteCard): List<Finish> = finishesOf(card.variants)
-
-    /** The same question asked of the flags alone, which is how a set answers it in bulk. */
-    fun finishesOf(flags: RemoteVariants?): List<Finish> {
-        val found = buildList {
-            if (flags == null || flags.normal) add(Finish.NON_HOLO)
-            if (flags?.holo == true) add(Finish.HOLO)
-            if (flags?.reverse == true) add(Finish.REVERSE_HOLO)
+    /**
+     * A catalog printing as a [Variant].
+     *
+     * The app's pickers and badges know three things about a press run -- its finish, its
+     * edition and anything special about it -- so the printing's words are sorted into those:
+     * `normal`, `holo` and `reverse` are finishes, `1st-edition` and `shadowless` editions, and
+     * every other word (a foil pattern, a stamp, a misprint, a copyright line) is what makes it
+     * special, with the catalog's own labels to say so.
+     */
+    fun variantOf(p: SetPrinting, printingId: PrintingId, language: String, catalog: CardCatalog): Variant {
+        val finish = finishOf(p.finish)
+        val edition = editionOf(p.edition)
+        val extras = buildList {
+            if (edition == Edition.UNLIMITED) p.edition?.let(::add)
+            p.pattern?.let(::add)
+            if (finish == Finish.OTHER) add(p.finish)
+            addAll(p.stamps)
+            p.error?.let(::add)
         }
-        // A holo-only card (most vintage rares) reports normal = false. Falling back to
-        // non-holo there would file a Base Set Charizard as a common.
-        return found.ifEmpty { listOf(Finish.HOLO) }
+        return Variant(
+            id = VariantId(p.id),
+            printingId = printingId,
+            finish = finish,
+            edition = edition,
+            language = CardCatalog.languageOf(language),
+            note = p.identify,
+            special = extras.joinToString("+").ifEmpty { null },
+            specialLabel = extras.joinToString(" · ") { catalog.wordLabel(it) }.ifEmpty { null },
+            image = CardArt.stemOf(p.image),
+        )
     }
 
-    fun cardId(card: RemoteCard): CardId = cardId(card.id)
-
-    fun printingId(card: RemoteCard): PrintingId = printingId(card.id)
-
-    fun variantId(card: RemoteCard, finish: Finish, edition: Edition, special: String? = null): VariantId =
-        variantId(card.id, finish, edition, special)
-
-    // The id-only forms. A search row and a fetched card are the same card at two levels
-    // of detail, so they have to key to the same rows -- otherwise filling a want list
-    // from a set listing and then fetching one of those cards produces two Charizards.
-
-    fun cardId(remoteId: String): CardId = CardId("tcgdex-$remoteId")
-
-    fun printingId(remoteId: String): PrintingId = PrintingId("tcgdex-$remoteId")
-
-    fun variantId(remoteId: String, finish: Finish, edition: Edition, special: String? = null): VariantId {
-        val suffix = buildString {
-            append(finish.name.lowercase())
-            if (edition != Edition.UNLIMITED) append("-").append(edition.name.lowercase())
-            // After a "~", which no card id, finish or edition contains, so the plain ids
-            // every existing collection holds are unchanged and this one still reads back.
-            if (special != null) append(SPECIAL).append(special)
-        }
-        return VariantId("tcgdex-$remoteId-$suffix")
-    }
-
-    private const val SPECIAL = "~"
-
-    /** The press run a catalog special printing was made on, as a [Finish]. */
-    fun finishOfType(type: String): Finish = when (type.lowercase()) {
+    fun finishOf(word: String): Finish = when (word) {
         "normal" -> Finish.NON_HOLO
         "holo" -> Finish.HOLO
         "reverse" -> Finish.REVERSE_HOLO
         else -> Finish.OTHER
     }
 
-    /** The key a special printing's quotes are filed under in the price file. */
-    fun specialPriceKey(finish: Finish, special: String): String {
-        val type = when (finish) {
-            Finish.NON_HOLO -> "normal"
-            Finish.REVERSE_HOLO -> "reverse"
-            else -> "holo"
-        }
-        return "$type~$special"
+    fun editionOf(word: String?): Edition = when (word) {
+        "1st-edition" -> Edition.FIRST_EDITION
+        "shadowless" -> Edition.SHADOWLESS
+        else -> Edition.UNLIMITED
     }
 
     /**
-     * A variant id read back into the card and press run it was minted from.
-     *
-     * The inverse of [variantId], and the reason a lost catalog cache is recoverable
-     * rather than fatal. These ids are not opaque -- `tcgdex-mep-014-holo` says which
-     * upstream card it is and how it was printed -- so a copy whose catalog rows have
-     * gone can be rebuilt from the published catalog without asking the network anything.
-     *
-     * Matched longest suffix first. A finish and an edition are two segments and a finish
-     * alone is one, so testing the short form first would read `holo-first_edition` as an
-     * unlimited card belonging to a set called "...-holo".
+     * A card's printings, plainest first: unlimited before other editions (and those in the
+     * catalog's own order, so 1st Edition before Shadowless), plain before patterned or stamped,
+     * then normal, holo, reverse. The head of this list is the printing a card stands for when
+     * only one is wanted.
      */
-    fun decompose(variantId: VariantId): Decomposed? {
-        val whole = variantId.value.removePrefix("tcgdex-")
-        if (whole == variantId.value) return null
-        val body = whole.substringBefore(SPECIAL)
-        val special = whole.substringAfter(SPECIAL, missingDelimiterValue = "").ifEmpty { null }
-
-        val candidates = buildList {
-            for (finish in Finish.entries) {
-                for (edition in Edition.entries) {
-                    val suffix = buildString {
-                        append(finish.name.lowercase())
-                        if (edition != Edition.UNLIMITED) append("-").append(edition.name.lowercase())
-                    }
-                    add(Triple(suffix, finish, edition))
-                }
-            }
-        }.sortedByDescending { it.first.length }
-
-        for ((suffix, finish, edition) in candidates) {
-            val marker = "-$suffix"
-            if (body.endsWith(marker)) {
-                val remoteId = body.dropLast(marker.length)
-                if (remoteId.isNotEmpty()) return Decomposed(remoteId, finish, edition, special)
-            }
-        }
-        return null
-    }
-
-    /** What a variant id was made of. */
-    data class Decomposed(
-        val remoteId: String,
-        val finish: Finish,
-        val edition: Edition,
-        val special: String? = null,
-    )
-
-    /**
-     * One pocket per card, each in the press run that card was actually printed in.
-     *
-     * The plainest finish that exists, which is not the same as the plainest finish. Most
-     * cards are normals and get a normal pocket, but a modern ex or a vintage holo rare
-     * was never printed as a normal at all, and a want-pocket for a variation nobody has
-     * ever pulled is a pocket that can never be filled from a real binder. [finishesOf]
-     * already ranks them plainest-first, so the head of that list is the answer.
-     *
-     * A card the catalog could not be asked about falls back to a normal -- which is what
-     * every pocket in this binder used to be.
-     */
-    fun checklist(
-        hits: List<SearchHit>,
-        variants: Map<String, RemoteVariants>,
-    ): List<SetPocket> = hits.map { hit ->
-        SetPocket(hit, finishesOf(variants[hit.id]).first())
-    }
-
-    /**
-     * Every pocket a master set needs, in the order they go into the binder.
-     *
-     * A master set is the set with every variation of every card in it, so the checklist
-     * fans out: one pocket per press run rather than one per card. Ordered card by card
-     * and then plainest finish first, which is how a master set is built in the hand --
-     * a card's normal, holo and reverse sit together, rather than the binder holding every
-     * normal in the set and then starting over at card one.
-     *
-     * The difference from [checklist] is only how much of each card's list is taken: that
-     * one keeps the head, this one keeps all of it. A card the catalog could not be asked
-     * about therefore falls back to the same single pocket either way. A missing holo
-     * pocket is one the user can add in a gesture; a card missing outright is a hole in
-     * the checklist they have to notice first.
-     */
-    fun masterSet(
-        hits: List<SearchHit>,
-        variants: Map<String, RemoteVariants>,
-    ): List<SetPocket> = hits.flatMap { hit ->
-        finishesOf(variants[hit.id]).map { finish -> SetPocket(hit, finish) }
-    }
-
-    /**
-     * Catalog rows for cards known only from a listing, in one pass.
-     *
-     * Building a want list for a 200-card set cannot mean 200 card fetches -- that is a
-     * minute of waiting for a button that should feel instant. A set listing already
-     * carries everything a *pocket* needs: a name, a printed number, and the art stem,
-     * which is what makes a wanted pocket a picture of the card you are hunting rather
-     * than a dashed rectangle with a name in it. What it does not carry is the price and
-     * the card's type, and both arrive on their own the next time the catalog sync runs.
-     *
-     * Existing rows are never overwritten. A card already imported in full knows more
-     * than a listing row does, and a stub landing on top of it would throw that away --
-     * so this only ever fills gaps, and returns the variant for every hit either way.
-     */
-    fun stubAll(
-        snapshot: CollectionSnapshot,
-        pockets: List<SetPocket>,
-        edition: Edition = Edition.UNLIMITED,
-    ): Pair<CollectionSnapshot, List<VariantId>> {
-        val cards = snapshot.cards.toMutableMap()
-        val printings = snapshot.printings.toMutableMap()
-        val variants = snapshot.variants.toMutableMap()
-
-        val ids = pockets.map { (hit, finish) ->
-            val cardId = cardId(hit.id)
-            val printingId = printingId(hit.id)
-            val variantId = variantId(hit.id, finish, edition)
-
-            if (cardId !in cards) {
-                cards[cardId] = Card(id = cardId, name = hit.name, supertype = Supertype.POKEMON)
-            }
-            if (printingId !in printings) {
-                printings[printingId] = Printing(
-                    id = printingId,
-                    cardId = cardId,
-                    setCode = hit.setId,
-                    setName = hit.setName,
-                    number = hit.number,
-                    setTotal = hit.setTotal,
-                    rarity = null,
-                    illustrator = null,
-                    releaseYear = null,
-                    imageUrl = hit.artStem,
-                    imageAltUrl = hit.artUrl,
-                )
-            }
-            if (variantId !in variants) {
-                variants[variantId] = Variant(
-                    id = variantId,
-                    printingId = printingId,
-                    finish = finish,
-                    edition = edition,
-                )
-            }
-            variantId
-        }
-
-        return snapshot.copy(cards = cards, printings = printings, variants = variants) to ids
-    }
-
-    /**
-     * Writes [card] into [snapshot], replacing whatever was there under the same ids.
-     *
-     * Prices are only written when TCGplayer actually quoted the finish. A card with no
-     * quote keeps whatever the snapshot already held, so a refresh can never silently
-     * zero out a value that a user typed in themselves.
-     */
-    fun into(
-        snapshot: CollectionSnapshot,
-        card: RemoteCard,
-        edition: Edition = Edition.UNLIMITED,
-        fetchedAtEpochSeconds: Long = 0L,
-    ): CollectionSnapshot {
-        val cardId = cardId(card)
-        val printingId = printingId(card)
-        val existing = snapshot.printings[printingId]
-        // Only when this press run *is* the 1st Edition. The upstream flag says one exists,
-        // which is true of every Jungle holo, and reading it as "this is one" priced the
-        // Unlimited copy at the 1st Edition figure. A 1st Edition is a special printing of
-        // its own now, with its own price.
-        val firstEdition = edition == Edition.FIRST_EDITION
-
-        val domainCard = Card(
-            id = cardId,
-            name = card.name,
-            supertype = supertypeOf(card.category),
-            hp = card.hp,
-            types = card.types.mapNotNull(::typeOf),
-            flavorText = card.description,
+    fun plainestFirst(printings: List<SetPrinting>, catalog: CardCatalog): List<SetPrinting> =
+        printings.sortedWith(
+            compareBy(
+                { if (it.edition == null) 0 else 1 },
+                { catalog.wordSort(it.edition) },
+                { (if (it.pattern != null) 1 else 0) + it.stamps.size + (if (it.error != null) 1 else 0) },
+                { finishOf(it.finish).ordinal },
+                { it.variant },
+            ),
         )
 
-        val printing = Printing(
-            id = printingId,
-            cardId = cardId,
-            setCode = card.set?.id ?: card.id.substringBeforeLast('-', ""),
-            setName = card.set?.name ?: "Unknown set",
-            number = card.localId ?: card.id.substringAfterLast('-'),
-            setTotal = card.set?.cardCount?.printed?.toString(),
-            rarity = card.rarity,
-            illustrator = card.illustrator,
-            releaseYear = null,
-            // Both halves fall back to what the printing already had rather than
-            // overwriting it with nothing. Re-importing is how a card gets its prices
-            // refreshed, and a refresh that arrived without artwork used to blank the
-            // picture the catalog had found for it -- the card went grey on re-add.
-            imageUrl = card.image ?: existing?.imageUrl,
-            imageAltUrl = card.imageAlt ?: existing?.imageAltUrl,
-        )
+    /** The printing of a card an add should default to, given the finish a screen asked for. */
+    fun preferredVariant(card: CatalogCard, finish: Finish, catalog: CardCatalog): VariantId? {
+        val ordered = plainestFirst(card.card.printings, catalog)
+        val chosen = ordered.firstOrNull { finishOf(it.finish) == finish } ?: ordered.firstOrNull()
+        return chosen?.let { VariantId(it.id) }
+    }
 
-        var variants = snapshot.variants
-        var prices = snapshot.prices
-        for (finish in finishesOf(card)) {
-            val id = variantId(card, finish, edition)
-            variants = variants + (
-                id to Variant(id = id, printingId = printingId, finish = finish, edition = edition)
-                )
-            card.marketQuote(priceKeys(finish, firstEdition))?.let { quote ->
-                prices = prices + (
-                    id to PriceSnapshot(
-                        variantId = id,
-                        market = Money(quote.cents),
-                        source = quote.source,
-                        currency = quote.currency,
-                        fetchedAtEpochSeconds = fetchedAtEpochSeconds,
-                    )
-                    )
-            }
+    /** One pocket per card, each in the plainest printing that card has. */
+    fun checklist(catalog: CardCatalog, hits: List<SearchHit>): List<SetPocket> = hits.mapNotNull { hit ->
+        val first = catalog.card(hit.id)?.card?.printings?.let { plainestFirst(it, catalog) }?.firstOrNull() ?: return@mapNotNull null
+        SetPocket(hit, first.id)
+    }
+
+    /**
+     * Every pocket a master set needs, card by card and plainest printing first -- a card's
+     * printings sit together, the way a master set is built in the hand.
+     */
+    fun masterSet(catalog: CardCatalog, hits: List<SearchHit>): List<SetPocket> = hits.flatMap { hit ->
+        catalog.card(hit.id)?.card?.printings?.let { plainestFirst(it, catalog) }.orEmpty().map { SetPocket(hit, it.id) }
+    }
+
+    /** The rows every pocket's card needs, and the variant each pocket holds open. */
+    fun rowsForPockets(catalog: CardCatalog, pockets: List<SetPocket>): Pair<CatalogRows, List<VariantId>> {
+        var rows = CatalogRows()
+        val seen = mutableSetOf<String>()
+        for (pocket in pockets) {
+            if (!seen.add(pocket.hit.id)) continue
+            val card = catalog.card(pocket.hit.id) ?: continue
+            rows += rowsFor(card, catalog)
         }
-
-        // The stamped and pattern printings beside the plain ones, each its own variant at its
-        // own price. Priced from their own quotes only: a stamped copy with no quote is
-        // unpriced rather than worth whatever the plain card is.
-        for (printing in card.special) {
-            val finish = finishOfType(printing.type)
-            val id = variantId(card, finish, edition, printing.key)
-            variants = variants + (
-                id to Variant(
-                    id = id,
-                    printingId = printingId,
-                    finish = finish,
-                    edition = edition,
-                    special = printing.key,
-                    specialLabel = printing.label,
-                )
-                )
-            card.specialQuote(printing.priceKey, priceKeys(finish, firstEdition = false))?.let { quote ->
-                prices = prices + (
-                    id to PriceSnapshot(
-                        variantId = id,
-                        market = Money(quote.cents),
-                        source = quote.source,
-                        currency = quote.currency,
-                        fetchedAtEpochSeconds = fetchedAtEpochSeconds,
-                    )
-                    )
-            }
-        }
-
-        return snapshot.copy(
-            cards = snapshot.cards + (cardId to domainCard),
-            printings = snapshot.printings + (printingId to printing),
-            variants = variants,
-            prices = prices,
-        )
+        return rows to pockets.map { VariantId(it.printingId) }.filter { it in rows.variants }
     }
 
     fun supertypeOf(category: String?): Supertype = when (category?.lowercase()) {
@@ -382,14 +190,14 @@ object CardImport {
         "grass" -> PokemonType.GRASS
         "fire" -> PokemonType.FIRE
         "water" -> PokemonType.WATER
-        "lightning", "electric" -> PokemonType.LIGHTNING
+        "lightning" -> PokemonType.LIGHTNING
         "psychic" -> PokemonType.PSYCHIC
         "fighting" -> PokemonType.FIGHTING
-        "darkness", "dark" -> PokemonType.DARKNESS
-        "metal", "steel" -> PokemonType.METAL
+        "darkness" -> PokemonType.DARKNESS
+        "metal" -> PokemonType.METAL
         "fairy" -> PokemonType.FAIRY
         "dragon" -> PokemonType.DRAGON
-        "colorless", "normal" -> PokemonType.COLORLESS
+        "colorless" -> PokemonType.COLORLESS
         else -> null
     }
 }

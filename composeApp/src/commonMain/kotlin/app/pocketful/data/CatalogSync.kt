@@ -1,48 +1,41 @@
 package app.pocketful.data
 
-import app.pocketful.domain.Variant
-import app.pocketful.domain.SlotContent
-import app.pocketful.domain.CardId
 import app.pocketful.domain.Card
+import app.pocketful.domain.CardId
 import app.pocketful.domain.CollectionSnapshot
-import app.pocketful.domain.Finish
 import app.pocketful.domain.Money
 import app.pocketful.domain.PriceSnapshot
 import app.pocketful.domain.Printing
 import app.pocketful.domain.PrintingId
+import app.pocketful.domain.SlotContent
+import app.pocketful.domain.Variant
 import app.pocketful.domain.VariantId
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 
 /**
- * Matching what is already in the collection against the live catalog.
+ * Keeping the collection's catalog rows in step with the published catalog.
  *
- * This is the difference between an app that can show art for cards you add *from now on*
- * and one that can show art for the collection you already have. It resolves each existing
- * printing to an upstream card and writes back the two things the local record cannot
- * invent -- the artwork and the real market price -- while leaving every id alone.
+ * Every card the collection holds carries a copy of what the catalog said about it when it was
+ * filed -- its name, picture, printings -- so the collection can be drawn without the catalog.
+ * When a set is published again with a correction, a new picture or a printing that was
+ * missing, this is what carries the change into the collection. It asks the network nothing:
+ * the catalog and the price file are already on the device.
  *
- * Ids are deliberately preserved rather than re-derived. A copy points at a variant, and
- * re-keying the catalog underneath it would strand every card anyone has filed. So a sync
- * only ever *fills in* printings and prices that already exist.
+ * IDs never change here. A copy points at a variant by the catalog's own ID, and the catalog
+ * never renames what it has published, so a refresh only ever replaces rows under the same IDs
+ * and adds printings a card did not have.
  */
-class CatalogSync(private val api: TcgDex) {
+class CatalogSync(private val catalog: CardCatalog) {
 
     /**
-     * What the sync found, as a delta rather than a finished snapshot.
-     *
-     * Returning the whole snapshot would mean a sync started before an edit and finished
-     * after it silently reverts that edit. A delta is applied to whatever the collection
-     * looks like when the answers actually arrive.
+     * What a refresh found, as a delta rather than a finished snapshot, so a refresh that
+     * started before an edit and finished after it cannot undo that edit.
      */
     data class Result(
         val matched: Int,
         val unmatched: Int,
-        /** Matched a real card whose name disagreed, and was therefore left alone. */
-        val rejected: Int = 0,
+        val cards: Map<CardId, Card> = emptyMap(),
         val printings: Map<PrintingId, Printing> = emptyMap(),
+        val variants: Map<VariantId, Variant> = emptyMap(),
         val prices: Map<VariantId, PriceSnapshot> = emptyMap(),
         val failure: String? = null,
     ) {
@@ -51,225 +44,62 @@ class CatalogSync(private val api: TcgDex) {
     }
 
     /**
-     * Resolves and merges every printing in [snapshot].
-     *
-     * Requests run six at a time. Serially, a forty-card collection is forty round trips
-     * and most of a minute of staring at a spinner; unbounded, it is forty simultaneous
-     * connections and a rate limit.
+     * Every printing in the collection, refreshed from the catalog and repriced from the price
+     * file. Cards the catalog does not have -- ones added by hand -- are left exactly as they are.
      */
-    suspend fun run(
-        snapshot: CollectionSnapshot,
-        nowEpochSeconds: Long = 0L,
-        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
-    ): Result {
-        val sets = runCatching { api.sets() }.getOrElse { cause ->
-            return Result(
-                matched = 0,
-                unmatched = snapshot.printings.size,
-                // Classified rather than assumed. Settings shows this string verbatim on a
-                // manual sync, and telling someone to check a working connection while the
-                // catalog is returning 503 sends them to debug the one thing that is fine.
-                failure = catalogFailureMessage(cause, "the set index"),
-            )
-        }
-
-        val targets = snapshot.printings.values.map { printing ->
-            printing.id to remoteIdFor(printing, sets)
-        }
-        val total = targets.size
-        val gate = Semaphore(6)
-
-        val fetched: List<Pair<PrintingId, RemoteCard?>> = coroutineScope {
-            val inFlight = targets.map { (printingId, remoteId) ->
-                async {
-                    val card = if (remoteId == null) null else {
-                        gate.withPermit { runCatching { api.card(remoteId) }.getOrNull() }
-                    }
-                    printingId to card
-                }
-            }
-            // Progress is reported here rather than inside each coroutine: awaiting in
-            // submission order gives a counter that only ever climbs, and needs no
-            // synchronisation to be correct.
-            inFlight.mapIndexed { index, deferred ->
-                deferred.await().also { onProgress(index + 1, total) }
-            }
-        }
-
-        val variantsByPrinting = snapshot.variants.values.groupBy { it.printingId }
-
-        val printings = mutableMapOf<PrintingId, Printing>()
-        val prices = mutableMapOf<VariantId, PriceSnapshot>()
+    fun refresh(snapshot: CollectionSnapshot, nowEpochSeconds: Long): Result {
+        var rows = CatalogRows()
         var matched = 0
-        var rejected = 0
-
-        for ((printingId, card) in fetched) {
-            if (card == null) continue
-            val existing = snapshot.printings[printingId] ?: continue
-
-            // Set and number identified a real card -- but if it is not the card this
-            // record says it is, the lookup was wrong, not the record. Numbering shifts
-            // between a set and its reprints, and secret rares sit past the printed
-            // total, so `<set>-<number>` lands on the wrong card often enough to matter.
-            // Attaching the wrong picture and the wrong price to something in a user's
-            // binder is far worse than leaving it as it was, so a name that disagrees
-            // means the whole match is dropped.
-            val localName = snapshot.cards[existing.cardId]?.name
-            if (localName != null && !namesAgree(localName, card.name)) {
-                rejected++
-                continue
-            }
+        for (printingId in snapshot.printings.keys) {
+            val card = catalog.card(printingId.value) ?: continue
             matched++
-
-            printings[printingId] = (
-                existing.copy(
-                    // Only ever fills gaps. A rarity someone corrected by hand is a
-                    // deliberate act; the upstream value is not more true than it.
-                    imageUrl = card.image ?: existing.imageUrl,
-                    // The reason a card already in a binder can gain artwork it never had.
-                    // TCGdex has no picture for about 7% of the catalog and no idea that
-                    // one exists elsewhere, so this comes from the published catalog
-                    // rather than from the document just fetched. Cards filed before this
-                    // field existed pick it up on the next sync, which is what makes the
-                    // fix reach collections that already exist.
-                    imageAltUrl = api.publishedCard(card.id)?.imageAlt ?: existing.imageAltUrl,
-                    rarity = existing.rarity ?: card.rarity,
-                    illustrator = existing.illustrator ?: card.illustrator,
-                )
-                )
-
-            for (variant in variantsByPrinting[printingId].orEmpty()) {
-                val special = variant.special
-                val quote = if (special == null) {
-                    card.marketQuote(priceKeysFor(variant.finish))
-                } else {
-                    card.specialQuote(CardImport.specialPriceKey(variant.finish, special), priceKeysFor(variant.finish))
-                } ?: continue
-                prices[variant.id] = PriceSnapshot(
-                    variantId = variant.id,
-                    market = Money(quote.cents),
-                    source = quote.source,
-                    currency = quote.currency,
-                    fetchedAtEpochSeconds = nowEpochSeconds,
-                )
-            }
+            rows += CardImport.rowsFor(card, catalog)
         }
-
+        val cards = rows.cards.filter { (id, card) -> snapshot.cards[id] != card }
+        val printings = rows.printings.filter { (id, printing) -> snapshot.printings[id] != printing }
+        val variants = rows.variants.filter { (id, variant) -> snapshot.variants[id] != variant }
+        val allVariants = snapshot.variants.keys + rows.variants.keys
         return Result(
             matched = matched,
-            unmatched = total - matched,
-            rejected = rejected,
+            unmatched = snapshot.printings.size - matched,
+            cards = cards,
             printings = printings,
-            prices = prices,
+            variants = variants,
+            prices = priceFromPublished(allVariants, nowEpochSeconds),
         )
     }
 
-    /**
-     * Fills in artwork from the published catalog, asking the network nothing at all.
-     *
-     * Separate from [run] because it has entirely different costs and therefore deserves
-     * entirely different rules about when it may happen. [run] is one HTTP request per
-     * card and is rationed behind a six-hour price TTL; this is a map lookup per card and
-     * can happen on every launch.
-     *
-     * That distinction is the whole point. Artwork for a card already in a binder used to
-     * arrive only as a side effect of re-pricing it, so a collection whose prices were
-     * fetched an hour ago could not gain a picture for another five -- and the 1,700
-     * cards TCGdex has no artwork for would never gain one at all, because the document
-     * [run] fetches does not know their pictures exist. This reaches both, immediately
-     * and offline.
-     *
-     * Only ever fills gaps, like [run]: a printing that already has art keeps it.
-     */
-    fun fillArtFromCatalog(snapshot: CollectionSnapshot): Map<PrintingId, Printing> {
-        val sets = api.publishedSetIndex() ?: return emptyMap()
-        val filled = mutableMapOf<PrintingId, Printing>()
-
-        for (printing in snapshot.printings.values) {
-            if (printing.imageUrl != null && printing.imageAltUrl != null) continue
-            val remoteId = remoteIdFor(printing, sets) ?: continue
-            val published = api.publishedCard(remoteId) ?: continue
-
-            // The same guard [run] uses, and for the same reason: `<set>-<number>` lands
-            // on the wrong card often enough to matter, and the wrong picture in someone's
-            // binder is worse than no picture.
-            val localName = snapshot.cards[printing.cardId]?.name
-            if (localName != null && !namesAgree(localName, published.name)) continue
-
-            val merged = printing.copy(
-                imageUrl = printing.imageUrl ?: published.image,
-                imageAltUrl = printing.imageAltUrl ?: published.imageAlt,
-            )
-            if (merged != printing) filled[printing.id] = merged
-        }
-        return filled
-    }
-
-    /**
-     * Prices the whole collection from the published file, asking the network nothing.
-     *
-     * The counterpart to [fillArtFromCatalog], and it exists for the same reason: the app
-     * already holds the answer on disk, so paying a round trip per card for it is a cost
-     * with nothing bought. [run] still exists and is still worth running -- it is what
-     * catches a card published since last night's build -- but it is now a refinement on
-     * top of a collection that is already priced rather than the only thing that prices
-     * one.
-     *
-     * That distinction decides whether a large collection works at all. A variant id
-     * carries its own card id, so this is a map lookup per variant and completes in
-     * milliseconds for thousands of cards; [run] is one request per printing, which for
-     * 1,577 printings is about ninety seconds and does not fit in the launch budget.
-     */
-    fun priceFromPublished(
-        snapshot: CollectionSnapshot,
-        nowEpochSeconds: Long = 0L,
-    ): Map<VariantId, PriceSnapshot> {
+    /** Prices for these variants from the price file on the device, today's and the day before's. */
+    fun priceFromPublished(variantIds: Collection<VariantId>, nowEpochSeconds: Long): Map<VariantId, PriceSnapshot> {
+        val prices = catalog.prices ?: return emptyMap()
         val priced = mutableMapOf<VariantId, PriceSnapshot>()
-        for (variant in snapshot.variants.values) {
-            val parts = CardImport.decompose(variant.id) ?: continue
-            val special = parts.special
-            val keys = priceKeysFor(variant.finish)
-            val cents = if (special == null) {
-                api.publishedPrice(parts.remoteId, keys)
-            } else {
-                api.publishedSpecialPrice(parts.remoteId, CardImport.specialPriceKey(variant.finish, special), keys)
-            } ?: continue
-            val before = if (special == null) {
-                api.publishedPreviousPrice(parts.remoteId, keys)
-            } else {
-                api.publishedPreviousSpecialPrice(parts.remoteId, CardImport.specialPriceKey(variant.finish, special), keys)
-            }
-            priced[variant.id] = PriceSnapshot(
-                variantId = variant.id,
+        for (id in variantIds) {
+            val cents = prices.cents(id.value) ?: continue
+            val before = prices.previousCents(id.value)
+            priced[id] = PriceSnapshot(
+                variantId = id,
                 market = Money(cents),
                 source = "tcgplayer",
                 fetchedAtEpochSeconds = nowEpochSeconds,
                 previous = before?.let { Money(it) },
-                previousDate = before?.let { api.publishedPreviousDate },
+                previousDate = before?.let { prices.previous?.date },
             )
         }
         return priced
     }
 
+    fun priceFromPublished(snapshot: CollectionSnapshot, nowEpochSeconds: Long): Map<VariantId, PriceSnapshot> =
+        priceFromPublished(snapshot.variants.keys, nowEpochSeconds)
+
     /**
-     * Rebuilds catalog rows for cards the collection references but no longer has.
+     * Rebuilds catalog rows for cards the collection points at but has no rows for.
      *
-     * The collection is stored as two files: what you own, and the slice of the catalog
-     * those things are described by. Lose the second and the first survives as a list of
-     * ids pointing at nothing -- the right number of cards, every one of them nameless.
-     * That is a poor trade for a file the app can reconstruct, and it is reconstructible
-     * because a variant id is not opaque: `tcgdex-mep-014-holo` names its own card, and
-     * the published catalog on disk holds all 23,548 of them.
-     *
-     * So this asks the network nothing. It is a repair, run at every launch, and on the
-     * overwhelmingly normal launch where nothing is missing it does no work at all.
-     *
-     * Prices are not rebuilt here. They are not in the published catalog and they are not
-     * a fact about the card; the sync that follows fetches them, and a card that is briefly
-     * unpriced is a card with a dash next to it rather than a card that is gone.
+     * The collection is stored as two files -- what you own, and the slice of the catalog those
+     * things are described by -- and losing the second leaves a list of IDs pointing at nothing.
+     * Every variant ID names its own card, and the catalog on the device has that card, so the
+     * rows come back without asking the network anything.
      */
     fun recoverOrphans(snapshot: CollectionSnapshot): Recovered {
-        // Everything the collection actually points at, owned or merely wanted.
         val referenced = buildSet {
             snapshot.copies.values.forEach { add(it.variantId) }
             for (binder in snapshot.binders) {
@@ -279,88 +109,15 @@ class CatalogSync(private val api: TcgDex) {
         val orphans = referenced.filter { it !in snapshot.variants }
         if (orphans.isEmpty()) return Recovered()
 
-        val sets = api.publishedSetIndex() ?: return Recovered()
-        val cards = mutableMapOf<CardId, Card>()
-        val printings = mutableMapOf<PrintingId, Printing>()
-        val variants = mutableMapOf<VariantId, Variant>()
-
-        for (variantId in orphans) {
-            val parts = CardImport.decompose(variantId) ?: continue
-            val published = api.publishedCard(parts.remoteId) ?: continue
-            val setId = parts.remoteId.substringBeforeLast('-', missingDelimiterValue = "")
-            val set = sets[setId]
-
-            val cardId = CardImport.cardId(parts.remoteId)
-            val printingId = CardImport.printingId(parts.remoteId)
-
-            cards[cardId] = Card(
-                id = cardId,
-                name = published.name,
-                supertype = CardImport.supertypeOf(published.category),
-                hp = published.hp,
-                types = published.types.mapNotNull(CardImport::typeOf),
-                flavorText = published.description,
-            )
-            printings[printingId] = Printing(
-                id = printingId,
-                cardId = cardId,
-                setCode = setId,
-                setName = set?.name ?: setId,
-                number = published.localId ?: parts.remoteId.substringAfterLast('-'),
-                setTotal = set?.cardCount?.printed?.toString(),
-                rarity = published.rarity,
-                illustrator = published.illustrator,
-                releaseYear = null,
-                imageUrl = published.image,
-                imageAltUrl = published.imageAlt,
-            )
-            variants[variantId] = Variant(
-                id = variantId,
-                printingId = printingId,
-                finish = parts.finish,
-                edition = parts.edition,
-                special = parts.special,
-                specialLabel = parts.special?.let { key ->
-                    published.special.firstOrNull { it.key == key && CardImport.finishOfType(it.type) == parts.finish }?.label
-                },
-            )
+        var rows = CatalogRows()
+        for (cardId in orphans.map { CatalogIds.cardOf(it.value) }.distinct()) {
+            val card = catalog.card(cardId) ?: continue
+            rows += CardImport.rowsFor(card, catalog)
         }
-        return Recovered(cards, printings, variants)
+        return Recovered(rows.cards, rows.printings, rows.variants)
     }
 
-    /**
-     * The special printings a collection's cards have that its catalog rows do not.
-     *
-     * An import fans a card out into every printing the catalog lists, stamps included --
-     * but only from the day the catalog began listing them. A Tyrunt filed before that has
-     * a holo and nothing else, so its Pokémon Center stamp could never be chosen. This adds
-     * the missing variants from the published catalog, asking the network nothing, and
-     * leaves every existing row alone.
-     */
-    fun missingSpecialVariants(snapshot: CollectionSnapshot): Map<VariantId, Variant> {
-        val added = mutableMapOf<VariantId, Variant>()
-        for ((printingId, existing) in snapshot.variants.values.groupBy { it.printingId }) {
-            val plain = existing.firstOrNull { it.special == null } ?: continue
-            val parts = CardImport.decompose(plain.id) ?: continue
-            val published = api.publishedCard(parts.remoteId) ?: continue
-            for (printing in published.special) {
-                val finish = CardImport.finishOfType(printing.type)
-                val id = CardImport.variantId(parts.remoteId, finish, plain.edition, printing.key)
-                if (id in snapshot.variants) continue
-                added[id] = Variant(
-                    id = id,
-                    printingId = printingId,
-                    finish = finish,
-                    edition = plain.edition,
-                    special = printing.key,
-                    specialLabel = printing.label,
-                )
-            }
-        }
-        return added
-    }
-
-    /** Catalog rows rebuilt from the published catalog, for a collection that lost them. */
+    /** Catalog rows rebuilt from the catalog, for a collection that lost them. */
     data class Recovered(
         val cards: Map<CardId, Card> = emptyMap(),
         val printings: Map<PrintingId, Printing> = emptyMap(),
@@ -368,69 +125,5 @@ class CatalogSync(private val api: TcgDex) {
     ) {
         val isEmpty: Boolean get() = variants.isEmpty()
         val count: Int get() = variants.size
-    }
-
-    /**
-     * Whether two names describe the same card.
-     *
-     * Containment rather than equality, because suffixes drift: a record saying
-     * "Charizard" and a catalog saying "Charizard ex" are the same card described at
-     * different lengths, whereas "Blastoise ex" and "Alakazam ex" share only the suffix
-     * and are not.
-     */
-    private fun namesAgree(local: String, remote: String): Boolean {
-        val a = local.normalized()
-        val b = remote.normalized()
-        if (a.isEmpty() || b.isEmpty()) return false
-        return a == b || a.contains(b) || b.contains(a)
-    }
-
-    /**
-     * The upstream id for a local printing, or null if no set could be identified.
-     *
-     * TCGdex addresses a card as `<setId>-<number>`, so the whole problem is knowing which
-     * set. Three checks, cheapest and most certain first -- and none of them guesses on
-     * name alone, because "Base Set", "Base Set 2" and "Expedition Base Set" are three
-     * different sets whose names all contain each other.
-     */
-    private fun remoteIdFor(printing: Printing, sets: Map<String, RemoteSet>): String? {
-        val number = printing.number.trim().ifBlank { return null }
-        val setId = resolveSetId(printing, sets) ?: return null
-        return "$setId-$number"
-    }
-
-    private fun resolveSetId(printing: Printing, sets: Map<String, RemoteSet>): String? {
-        // 1. The local set code already is an upstream id.
-        sets[printing.setCode]?.let { return it.id }
-
-        val localName = printing.setName.normalized()
-        val localTotal = printing.setTotal?.trim()?.toIntOrNull()
-
-        // 2. The names agree exactly.
-        sets.values.firstOrNull { it.name.normalized() == localName }?.let { return it.id }
-
-        // 3. One name contains the other *and* the sets are the same size. Either test
-        //    alone is wrong: "151" is a substring of half the catalog, and dozens of sets
-        //    share a card count.
-        if (localTotal != null) {
-            sets.values.firstOrNull { candidate ->
-                val name = candidate.name.normalized()
-                val sameSize = candidate.cardCount?.official == localTotal
-                sameSize && (name.contains(localName) || localName.contains(name))
-            }?.let { return it.id }
-        }
-
-        return null
-    }
-
-    /** Lowercased, stripped of punctuation and spacing, so "Scarlet & Violet" == "scarletviolet". */
-    private fun String.normalized(): String = lowercase().filter { it.isLetterOrDigit() }
-
-    private fun priceKeysFor(finish: Finish): List<String> = when (finish) {
-        Finish.NON_HOLO -> listOf("normal", "1stEditionNormal")
-        Finish.HOLO -> listOf("holofoil", "1stEditionHolofoil")
-        Finish.REVERSE_HOLO -> listOf("reverseHolofoil", "holofoil")
-        Finish.FULL_ART, Finish.TEXTURED, Finish.GOLD, Finish.OTHER ->
-            listOf("holofoil", "normal", "reverseHolofoil")
     }
 }

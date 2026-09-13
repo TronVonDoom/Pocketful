@@ -4,7 +4,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import app.pocketful.data.CardImport
+import app.pocketful.data.CatalogIds
 import app.pocketful.data.PriceHistory
 import app.pocketful.data.PriceHistoryDoc
 import app.pocketful.data.portfolioSeries
@@ -114,9 +114,9 @@ fun HomeScreen(
     // kept, then re-summed whenever the collection changes. Fetching is keyed on the sets
     // rather than the snapshot, so adding a card from a set already loaded costs no request.
     val setIds = remember(snapshot.copies, snapshot.variants) {
-        snapshot.copies.values.mapNotNull { copy ->
-            CardImport.decompose(copy.variantId)?.remoteId?.let(PriceHistory::setOf)
-        }.toSortedSet()
+        snapshot.copies.values.map { copy -> CatalogIds.setOf(copy.variantId.value) }
+            .filter { it.isNotEmpty() }
+            .toSortedSet()
     }
     var historyDocs by remember { mutableStateOf<Map<String, PriceHistoryDoc>?>(null) }
     LaunchedEffect(setIds) {

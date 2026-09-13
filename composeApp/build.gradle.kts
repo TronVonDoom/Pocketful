@@ -125,6 +125,12 @@ kotlin {
             implementation(libs.coil.network.ktor3)
         }
         commonMain.get().kotlin.srcDir(generateAppVersion)
+        // The catalog layer is plain Kotlin and is tested on the JVM against files the Pocketful
+        // Editor actually published: ./gradlew :composeApp:testDebugUnitTest
+        commonTest.dependencies {
+            implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutines.test)
+        }
         androidMain.dependencies {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)

@@ -37,6 +37,7 @@ import app.pocketful.domain.CopyId
 import app.pocketful.domain.Finish
 import app.pocketful.domain.brief
 import app.pocketful.domain.variantBriefs
+import app.pocketful.data.CardImport
 import app.pocketful.data.CatalogSync
 import app.pocketful.ui.components.percentText
 import app.pocketful.ui.components.changeText
@@ -44,7 +45,7 @@ import app.pocketful.data.rememberHomeWidget
 import app.pocketful.data.WidgetSummary
 import app.pocketful.data.nowEpochSeconds
 import app.pocketful.data.PriceHistory
-import app.pocketful.data.RemoteSet
+import app.pocketful.data.CatalogSet
 import app.pocketful.data.rememberDocumentTransfer
 import app.pocketful.data.CatalogDownload
 import app.pocketful.data.PriceDownload
@@ -58,7 +59,7 @@ import app.pocketful.state.rememberCollectionTransfer
 import app.pocketful.state.rememberCatalogBrowser
 import app.pocketful.state.rememberAppBootstrap
 import app.pocketful.state.rememberCollectionStore
-import app.pocketful.state.rememberTcgDex
+import app.pocketful.state.rememberCardCatalog
 import app.pocketful.ui.binder.BinderEditorSheet
 import app.pocketful.ui.binder.BinderPageScreen
 import app.pocketful.ui.binder.SlotSheet
@@ -109,7 +110,7 @@ private sealed interface Route {
     data class BinderDetail(val id: BinderId) : Route
     data class ContainerDetail(val id: ContainerId) : Route
     /** One catalog set, whole: its information and its checklist. */
-    data class SetDetail(val set: RemoteSet) : Route
+    data class SetDetail(val set: CatalogSet) : Route
     data object AllCards : Route
     data object Trade : Route
 }
@@ -144,11 +145,11 @@ fun App() {
     // saying when the app last bothered to ask whether a new set exists.
     val catalogDownload = remember(storage) { CatalogDownload(storage) }
     val priceDownload = remember(storage) { PriceDownload(storage) }
+    val catalog = rememberCardCatalog()
     // Price history is fetched a set at a time as screens ask for it, and kept on disk.
-    val priceHistory = remember(storage) { PriceHistory(storage) }
+    val priceHistory = remember(storage, catalog) { PriceHistory(storage, baseUrl = { catalog.publicUrl }) }
     val transfer = rememberCollectionTransfer(rememberDocumentTransfer())
     val snapshot = store.snapshot
-    val catalog = rememberTcgDex()
     val catalogSync = remember(catalog) { CatalogSync(catalog) }
     // One client for the whole app, so the 218-set index is fetched once rather than once
     // per screen that wants to name a set.
@@ -179,7 +180,7 @@ fun App() {
     // information, a checklist and an action of its own -- and a summary card floating
     // over the tab you found it on could carry none of that without becoming a screen
     // with a scrim behind it.
-    var openSet by remember { mutableStateOf<RemoteSet?>(null) }
+    var openSet by remember { mutableStateOf<CatalogSet?>(null) }
     // How far into the catalog the search tab has been drilled. Hoisted for the same
     // reason the detail routes are -- back has to unwind it, and a screen cannot take the
     // gesture off the tab it is sitting in.
@@ -293,7 +294,7 @@ fun App() {
      * without that. The set screen starts fetching it on the way in, so the usual case is
      * that this returns immediately; the wait is paid once per set per session.
      */
-    val buildBinderForSet: (RemoteSet, List<SearchHit>, SetBuild) -> Unit = { set, cards, shape ->
+    val buildBinderForSet: (CatalogSet, List<SearchHit>, SetBuild) -> Unit = { set, cards, shape ->
         buildingBinder = shape
         scope.launch {
             val master = shape == SetBuild.MasterSet
@@ -304,19 +305,21 @@ fun App() {
             // the reason and says so; there is nothing worth opening here.
             if (pockets.isEmpty()) return@launch
 
+            val (rows, variantIds) = CardImport.rowsForPockets(catalog, pockets)
             val layout = store.settings.defaultLayout
-            val count = pockets.size
+            val count = variantIds.size
             val id = store.createSetBinder(
                 name = if (master) "${set.name} master set" else set.name,
                 // A master set is counted in pockets rather than in cards, because it holds
                 // more pockets than the set has cards and a subtitle claiming 358 cards for
                 // a 201-card set reads as a bug in the checklist.
-                subtitle = "$count ${if (master) "pockets" else "cards"} · ${set.id.uppercase()}",
+                subtitle = "$count ${if (master) "pockets" else "cards"} · ${set.code.uppercase()}",
                 layout = layout,
                 sheetCount = sheetsToHold(count, layout),
                 spineColor = SpineSwatches.random().value,
                 sourceSetId = set.id,
-                pockets = pockets,
+                rows = rows,
+                variantIds = variantIds,
             )
             landingOrdinal = null
             closeDetails()
@@ -351,9 +354,12 @@ fun App() {
             val card = lookup.fetch(hit).getOrNull()
             importingCard = false
             if (card != null) {
-                val variantId = store.importRemoteCard(card, Finish.NON_HOLO)
+                val variantId = store.importCatalogRows(
+                    CardImport.rowsFor(card, catalog),
+                    CardImport.preferredVariant(card, Finish.NON_HOLO, catalog),
+                )
                 repricePublished()
-                addingCard = store.snapshot.brief(variantId)
+                addingCard = variantId?.let { store.snapshot.brief(it) }
             }
         }
     }
@@ -375,9 +381,12 @@ fun App() {
             val card = lookup.fetch(hit).getOrNull()
             importingCard = false
             if (card != null) {
-                val variantId = store.importRemoteCard(card, Finish.NON_HOLO)
+                val variantId = store.importCatalogRows(
+                    CardImport.rowsFor(card, catalog),
+                    CardImport.preferredVariant(card, Finish.NON_HOLO, catalog),
+                )
                 repricePublished()
-                store.addCopy(variantId = variantId, container = addingTo())
+                if (variantId != null) store.addCopy(variantId = variantId, container = addingTo())
             }
         }
     }
@@ -418,7 +427,7 @@ fun App() {
             saver = saver,
             catalogSync = catalogSync,
             browser = browser,
-            api = catalog,
+            catalog = catalog,
             catalogDownload = catalogDownload,
             priceDownload = priceDownload,
             imageLoader = SingletonImageLoader.get(imageContext),
@@ -634,9 +643,20 @@ fun App() {
                                 snapshot = snapshot,
                                 onUpdate = { transform -> store.updateSettings(transform) },
                                 onSyncCatalog = { onProgress ->
-                                    catalogSync
-                                        .run(store.snapshot, onProgress = onProgress)
-                                        .also { store.applyCatalogSync(it) }
+                                    // Asks R2 for the index and prices now rather than when
+                                    // they are due, then carries whatever changed into the
+                                    // collection. Everything after the two downloads is local.
+                                    onProgress(0, 3)
+                                    catalog.use(catalogDownload.ensure(nowEpochSeconds(), force = true))
+                                    onProgress(1, 3)
+                                    catalog.usePrices(priceDownload.ensure(catalog.publicUrl, nowEpochSeconds(), force = true))
+                                    browser.refresh()
+                                    onProgress(2, 3)
+                                    catalogSync.refresh(store.snapshot, nowEpochSeconds())
+                                        .also {
+                                            store.applyCatalogSync(it)
+                                            onProgress(3, 3)
+                                        }
                                 },
                                 transfer = transfer,
                                 onExport = {

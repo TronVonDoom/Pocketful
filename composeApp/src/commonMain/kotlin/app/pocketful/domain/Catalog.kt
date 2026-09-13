@@ -49,24 +49,24 @@ data class Printing(
     val rarity: String?,
     val illustrator: String?,
     val releaseYear: Int?,
-    /** A TCGdex stem, which takes a quality and a format appended. */
-    val imageUrl: String? = null,
     /**
-     * A finished image URL, for the cards TCGdex has no stem for at all.
-     *
-     * About 7% of the catalog has no TCGdex asset in any language -- whole Trainer Kits,
-     * Shining Fates' Shiny Vault, Ancient Mew -- and the published catalog resolves what
-     * it can from a second source. Those are complete URLs on somebody else's CDN, so
-     * they take no quality suffix and cannot be stored in [imageUrl] without every reader
-     * of that field having to guess which kind of string it holds.
-     *
-     * Kept beside rather than instead, so a card that later gains real TCGdex art starts
-     * using it without anything needing to notice.
+     * The card's picture, as a stem: its path in the catalog without the extension. See
+     * [app.pocketful.data.CardArt], which turns it into a thumbnail or a full picture.
      */
-    val imageAltUrl: String? = null,
+    val image: String? = null,
+    /**
+     * The card back to show when there is no [image], as a stem.
+     *
+     * A card published without a picture anywhere is drawn as its back rather than as a blank
+     * pocket. Which back is decided by the catalog -- the series' own where it has one, else the
+     * catalog's -- and resolved once, when the card is filed.
+     */
+    val back: String? = null,
+    /** The number exactly as printed, "4/102" or "TG01/TG30". Preferred over [number] with [setTotal]. */
+    val printedNumber: String? = null,
 ) {
     /** What is actually printed in the corner, and the most reliable OCR target. */
-    val collectorNumber: String get() = setTotal?.let { "$number/$it" } ?: number
+    val collectorNumber: String get() = printedNumber ?: setTotal?.let { "$number/$it" } ?: number
 }
 
 @Serializable
@@ -81,13 +81,16 @@ data class Variant(
      * Which special printing this is, as the catalog keys it -- `pokemon-center`,
      * `pokeball`, `1st-edition` -- or null for the plain press run of its finish.
      *
-     * A string rather than another enum, because the hobby has a long tail of these (every
-     * World Championships deck signature is one) and a new stamp upstream should reach the
-     * app with the catalog rather than with a release. See the catalog's tools/variants.py.
+     * A string rather than another enum, because the hobby has a long tail of these and a
+     * new stamp should reach the app with the catalog rather than with a release. Built from
+     * the catalog printing's words that [finish] and [edition] do not already say, joined
+     * with "+": `pokeball`, `1999-2000-copyright`, `pre-release+staff`.
      */
     val special: String? = null,
-    /** How [special] reads to a person: "Pokémon Center Stamp". Carried, not derived. */
+    /** How [special] reads to a person: "Poké Ball Pattern". Carried, not derived. */
     val specialLabel: String? = null,
+    /** This printing's own picture, as a stem, when it looks different from its card's. */
+    val image: String? = null,
 ) {
     /** Short badge text, omitting anything that is the unremarkable default. */
     val badge: String?

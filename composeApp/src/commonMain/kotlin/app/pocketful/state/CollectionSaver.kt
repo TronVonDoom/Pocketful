@@ -114,6 +114,12 @@ class CollectionSaver(private val storage: SaveStorage) {
     private suspend fun readCollection(): CollectionSave? {
         val text = storage.read(COLLECTION_FILE) ?: return null
         val parsed = runCatching { SaveJson.decodeFromString<CollectionSave>(text) }.getOrNull()
+        if (parsed != null && parsed.schema < SAVE_SCHEMA) {
+            // Saved against the TCGdex-built catalog, whose IDs the catalog no longer has. Set
+            // aside rather than deleted -- quarantine keeps the file -- and the app starts fresh.
+            storage.quarantine(COLLECTION_FILE)
+            return null
+        }
         if (parsed == null || parsed.schema > SAVE_SCHEMA) {
             // Unreadable, or written by a build from the future. Either way this app
             // cannot honour it, and writing over it is not this app's decision to make.
@@ -127,6 +133,10 @@ class CollectionSaver(private val storage: SaveStorage) {
     private suspend fun readCache(): CatalogCache? {
         val text = storage.read(CATALOG_CACHE_FILE) ?: return null
         val parsed = runCatching { SaveJson.decodeFromString<CatalogCache>(text) }.getOrNull()
+        if (parsed != null && parsed.schema < SAVE_SCHEMA) {
+            storage.quarantine(CATALOG_CACHE_FILE)
+            return null
+        }
         if (parsed == null || parsed.schema > SAVE_SCHEMA) {
             // Kept rather than deleted, even though the cache is the disposable half.
             // A collection's copies point at variant ids that only the catalog resolves,

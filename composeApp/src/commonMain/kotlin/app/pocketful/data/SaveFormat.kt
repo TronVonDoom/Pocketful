@@ -36,8 +36,14 @@ import kotlinx.serialization.json.Json
  * either.
  */
 
-/** The current on-disk shape. Bump when a change cannot be read by the code before it. */
-const val SAVE_SCHEMA: Int = 1
+/**
+ * The current on-disk shape. Bump when a change cannot be read by the code before it.
+ *
+ * 2: the catalog moved from TCGdex to Pocketful's own, with its own IDs. A collection saved under
+ * 1 points at TCGdex IDs that no longer exist, so it is set aside rather than read. See
+ * CollectionSaver.
+ */
+const val SAVE_SCHEMA: Int = 2
 
 const val COLLECTION_FILE: String = "collection.json"
 const val CATALOG_CACHE_FILE: String = "catalog-cache.json"
@@ -198,7 +204,7 @@ fun CollectionSnapshot.toExport(settings: SavedSettings, day: String): Collectio
  * The slice of the catalog this collection actually depends on.
  *
  * Not the whole catalog: browsing a few thousand sets fills the local one with cards
- * nobody owns, and a backup is a record of a collection rather than a copy of TCGdex.
+ * nobody owns, and a backup is a record of a collection rather than a copy of the catalog.
  *
  * Every variant of a referenced *printing* is kept, though, not only the one owned. The
  * finish picker offers "you own the reverse holo, did you mean the holo" by looking at the

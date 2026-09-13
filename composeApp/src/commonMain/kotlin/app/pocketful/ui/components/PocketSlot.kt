@@ -271,8 +271,8 @@ private fun BrokenPocket(view: SlotView.Broken, shape: Shape) {
 private fun FilledPocket(view: SlotView.CardSlot, shape: Shape) {
     Box(Modifier.fillMaxSize()) {
         CardArtwork(
-            artStem = view.imageUrl,
-            artUrl = view.imageAltUrl,
+            art = view.image,
+            back = view.back,
             type = view.type,
             modifier = Modifier.fillMaxSize(),
             holo = view.isHolo,
@@ -280,9 +280,9 @@ private fun FilledPocket(view: SlotView.CardSlot, shape: Shape) {
 
         // With real art, the card prints its own name and number -- captioning it again
         // covers the illustration to repeat what is already there. So the full caption is
-        // for cards the catalog has no scan of, and a card with art gets only the one
-        // thing it cannot tell you itself: what it is worth.
-        val hasArt = view.imageUrl != null || view.imageAltUrl != null
+        // for cards the catalog has no picture of, including one drawn as its card back, which
+        // prints neither, and a card with art gets only what it cannot tell you itself: its worth.
+        val hasArt = view.image != null
 
         if (!hasArt) {
             // Bottom scrim keeps the caption legible over the placeholder gradient.
@@ -377,10 +377,10 @@ private fun WantedPocket(view: SlotView.CardSlot, corner: Dp) {
         // Where the catalog has a scan, the ghost is the actual card at low opacity --
         // far more useful when hunting than a name, because you are matching against what
         // is in the case in front of you.
-        if (view.imageUrl != null || view.imageAltUrl != null) {
+        if (view.image != null) {
             CardArtwork(
-                artStem = view.imageUrl,
-                artUrl = view.imageAltUrl,
+                art = view.image,
+                back = view.back,
                 type = view.type,
                 modifier = Modifier.fillMaxSize().alpha(0.22f),
             )

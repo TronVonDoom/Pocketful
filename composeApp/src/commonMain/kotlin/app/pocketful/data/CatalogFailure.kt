@@ -2,6 +2,9 @@ package app.pocketful.data
 
 import io.ktor.client.plugins.HttpRequestTimeoutException
 
+/** A catalog file answered with an HTTP error, rather than with something unreadable. */
+class CatalogUnavailable(val status: Int) : Exception("The card catalog returned $status.")
+
 /**
  * Why a catalog request failed, as one sentence about what to do next.
  *

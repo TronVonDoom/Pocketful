@@ -24,6 +24,8 @@ import app.pocketful.domain.PokemonType
 import app.pocketful.state.LocalAppSettings
 import app.pocketful.ui.theme.artBrush
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
 import kotlin.math.abs
 import kotlin.math.sin
 import kotlin.random.Random
@@ -42,16 +44,16 @@ enum class ArtSize { Thumb, Full }
  */
 @Composable
 fun CardArtwork(
-    artStem: String?,
+    /** The picture, as a stem. See [CardArt]. */
+    art: String?,
     type: PokemonType?,
     /**
-     * A finished image URL, used only when there is no [artStem].
+     * The card back, as a stem, drawn when there is no [art].
      *
-     * TCGdex has no artwork at all for about 7% of the catalog, and the published catalog
-     * fills what it can from a second source. Those are complete URLs on somebody else's
-     * CDN rather than stems, so they take no quality suffix and come in one size.
+     * A card published without a picture anywhere is shown as its back rather than as a blank,
+     * so a pocket holding one still looks like a card in a sleeve.
      */
-    artUrl: String? = null,
+    back: String? = null,
     modifier: Modifier = Modifier,
     size: ArtSize = ArtSize.Thumb,
     /** Whether this printing is a foil, and so has light to catch. */
@@ -61,26 +63,29 @@ fun CardArtwork(
         Box(Modifier.fillMaxSize().background(type.artBrush()))
 
         val url = when (size) {
-            ArtSize.Thumb -> CardArt.thumb(artStem, artUrl)
-            ArtSize.Full -> CardArt.full(artStem, artUrl)
+            ArtSize.Thumb -> CardArt.thumb(art, back)
+            ArtSize.Full -> CardArt.full(art, back)
         }
         if (url != null) {
+            // Cached by path rather than address, so moving the pictures to another domain
+            // does not mean downloading every one of them again.
+            val context = LocalPlatformContext.current
+            val request = remember(url) {
+                val key = CardArt.cacheKey(url)
+                ImageRequest.Builder(context).data(url).diskCacheKey(key).memoryCacheKey(key).build()
+            }
             AsyncImage(
-                model = url,
+                model = request,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
             )
         }
 
-        // Seeded from the art so that a page of sixteen foils does not flash in unison
-        // -- sixteen synchronised sweeps read as one screen-wide strobe rather than as
-        // sixteen cards catching the light.
-        //
-        // The switch is read here rather than at each call site. Five places draw a card,
-        // the settings screen makes one promise about foil, and a tile that went on
-        // shimmering after the toggle was turned off was a toggle that did not work.
-        if (holo && LocalAppSettings.current.holoShimmer) HoloSheen(seed = artStem.hashCode())
+        // Seeded from the art so that a page of sixteen foils does not flash in unison.
+        // The switch is read here rather than at each call site, so the settings toggle is
+        // honoured everywhere a card is drawn. A card back has no foil to catch the light.
+        if (holo && art != null && LocalAppSettings.current.holoShimmer) HoloSheen(seed = art.hashCode())
     }
 }
 

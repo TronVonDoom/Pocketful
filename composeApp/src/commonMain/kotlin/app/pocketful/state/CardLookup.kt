@@ -6,21 +6,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import app.pocketful.data.RemoteCard
+import app.pocketful.data.CardCatalog
+import app.pocketful.data.CatalogCard
 import app.pocketful.data.SearchHit
-import app.pocketful.data.TcgDex
-import app.pocketful.data.catalogFailureMessage
 import kotlinx.coroutines.delay
 
 /**
- * Searching the live catalog, as a piece of screen state.
+ * Searching the catalog, as a piece of screen state.
  *
- * Held apart from [CollectionStore] on purpose: this is transient UI state about a query
- * in progress, and folding it into the store would mean a failed network call showing up
- * as a change to the collection. Nothing here writes anything -- an import is an explicit
- * call the picker makes once the user has chosen a row.
+ * Held apart from [CollectionStore] on purpose: this is transient UI state about a query in
+ * progress. Nothing here writes anything -- filing a card is an explicit call the picker makes
+ * once the user has chosen a row.
  */
-class CardLookup(private val api: TcgDex) {
+class CardLookup(private val catalog: CardCatalog) {
 
     var query by mutableStateOf("")
         private set
@@ -31,7 +29,7 @@ class CardLookup(private val api: TcgDex) {
     var searching by mutableStateOf(false)
         private set
 
-    /** Set when the last attempt failed. Cleared by the next successful one. */
+    /** Set when the catalog has nothing to search yet. */
     var error by mutableStateOf<String?>(null)
         private set
 
@@ -47,40 +45,30 @@ class CardLookup(private val api: TcgDex) {
     suspend fun runSearch(text: String) {
         if (text.trim().length < 2) return
         searching = true
-        error = null
-        runCatching { api.search(text) }
-            .onSuccess { results = it }
-            .onFailure {
-                results = emptyList()
-                error = catalogFailureMessage(it, "that search")
-            }
+        error = if (!catalog.isLoaded) "The card catalog has not downloaded yet." else null
+        results = catalog.search(text)
         searching = false
     }
 
-    /** The full document behind a search row, fetched only once a row is actually chosen. */
-    suspend fun fetch(hit: SearchHit): Result<RemoteCard> =
-        runCatching { api.card(hit.id) ?: error("That card could not be loaded.") }
-            .onFailure { error = catalogFailureMessage(it, "that search") }
+    /** The whole card behind a search row. On the device, so it never waits on the network. */
+    fun fetch(hit: SearchHit): Result<CatalogCard> =
+        catalog.card(hit.id)?.let { Result.success(it) }
+            ?: Result.failure(IllegalStateException("That card is no longer in the catalog."))
 }
 
-/**
- * A lookup bound to the composition, with the query debounced.
- *
- * 350ms is long enough that typing "charizard" is one request rather than nine, and short
- * enough that the list still feels like it is following the keyboard.
- */
+/** A lookup bound to the composition, with the query debounced. */
 @Composable
-fun rememberCardLookup(api: TcgDex): CardLookup {
-    val lookup = remember(api) { CardLookup(api) }
+fun rememberCardLookup(catalog: CardCatalog): CardLookup {
+    val lookup = remember(catalog) { CardLookup(catalog) }
     LaunchedEffect(lookup.query) {
         val text = lookup.query
         if (text.trim().length < 2) return@LaunchedEffect
-        delay(350)
+        delay(200)
         lookup.runSearch(text)
     }
     return lookup
 }
 
-/** One API client per app, so the set index is fetched once rather than once per sheet. */
+/** One catalog per app. */
 @Composable
-fun rememberTcgDex(): TcgDex = remember { TcgDex() }
+fun rememberCardCatalog(): CardCatalog = remember { CardCatalog() }

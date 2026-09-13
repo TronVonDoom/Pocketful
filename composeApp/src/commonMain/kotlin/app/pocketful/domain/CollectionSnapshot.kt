@@ -303,8 +303,8 @@ data class CollectionSnapshot(
                     type = card.types.firstOrNull(),
                     finish = variant.finish,
                     badge = variant.badge,
-                    imageUrl = printing.imageUrl,
-                    imageAltUrl = printing.imageAltUrl,
+                    image = variant.image ?: printing.image,
+                    back = printing.back,
                     value = valueOf(copy),
                     currency = currencyOf(copy.variantId),
                     conditionShort = copy.condition.short,
@@ -329,8 +329,8 @@ data class CollectionSnapshot(
                     type = card.types.firstOrNull(),
                     finish = variant.finish,
                     badge = variant.badge,
-                    imageUrl = printing.imageUrl,
-                    imageAltUrl = printing.imageAltUrl,
+                    image = variant.image ?: printing.image,
+                    back = printing.back,
                     value = slot.targetPrice ?: marketValue(slot.variantId),
                     currency = currencyOf(slot.variantId),
                     conditionShort = null,
@@ -355,9 +355,10 @@ sealed interface SlotView {
         val type: PokemonType?,
         val finish: Finish,
         val badge: String?,
-        val imageUrl: String?,
-        /** A finished URL, for cards with no [imageUrl] stem. See Printing.imageAltUrl. */
-        val imageAltUrl: String? = null,
+        /** The picture, as a stem. See [app.pocketful.data.CardArt]. */
+        val image: String?,
+        /** The card back to draw when there is no [image]. */
+        val back: String? = null,
         val value: Money,
         /** What [value] is counted in. See [CollectionSnapshot.currencyOf]. */
         val currency: Currency = Currency.USD,

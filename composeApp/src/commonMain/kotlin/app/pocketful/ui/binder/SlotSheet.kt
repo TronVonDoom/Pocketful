@@ -33,9 +33,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.pocketful.data.CardImport
 import app.pocketful.data.PriceHistory
-import app.pocketful.data.RemoteSet
+import app.pocketful.data.CatalogSet
 import app.pocketful.data.SearchHit
-import app.pocketful.data.TcgDex
+import app.pocketful.data.CardCatalog
 import app.pocketful.domain.Binder
 import app.pocketful.domain.CardBrief
 import app.pocketful.domain.CollectionSnapshot
@@ -143,7 +143,7 @@ private const val UNFILED_PREVIEW = 6
 fun SlotSheet(
     target: SlotTarget?,
     store: CollectionStore,
-    catalog: TcgDex,
+    catalog: CardCatalog,
     browser: CatalogBrowser,
     history: PriceHistory,
     onDismiss: () -> Unit,
@@ -309,8 +309,10 @@ fun SlotSheet(
                     scope.launch {
                         val card = lookup.fetch(hit).getOrNull()
                         importing = false
-                        if (card != null) {
-                            val variantId = store.importRemoteCard(card, Finish.NON_HOLO)
+                        val variantId = card?.let {
+                            store.importCatalogRows(CardImport.rowsFor(it, catalog), CardImport.preferredVariant(it, Finish.NON_HOLO, catalog))
+                        }
+                        if (variantId != null) {
                             val brief = store.snapshot.brief(variantId)
                             when {
                                 brief == null -> Unit
@@ -804,7 +806,7 @@ private fun SearchFinder(
 private fun CatalogFinder(
     snapshot: CollectionSnapshot,
     browser: CatalogBrowser,
-    startSet: RemoteSet?,
+    startSet: CatalogSet?,
     intent: Intent,
     importing: Boolean,
     onPickRemote: (SearchHit, Intent) -> Unit,
@@ -856,13 +858,13 @@ private fun CatalogFinder(
             val needle = filter.trim().lowercase()
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 groups.forEach { group ->
-                    val sets = group.sets.filter { needle.isEmpty() || it.name.lowercase().contains(needle) || it.id.lowercase() == needle }
+                    val sets = group.sets.filter { needle.isEmpty() || it.name.lowercase().contains(needle) || it.code.lowercase() == needle }
                     if (sets.isEmpty()) return@forEach
                     SectionHeader(group.series.name + (group.years?.let { " · $it" } ?: ""))
                     sets.forEach { option ->
                         BrowseRow(
                             title = option.name,
-                            subtitle = listOfNotNull(option.id.uppercase(), option.releaseYear, option.officialCount?.let { "$it cards" }).joinToString(" · "),
+                            subtitle = listOfNotNull(option.code.uppercase(), option.releaseYear, option.officialCount?.let { "$it cards" }).joinToString(" · "),
                             onClick = { set = option },
                         )
                     }
@@ -900,7 +902,7 @@ private fun CatalogFinder(
                 SectionHeader("${shown.size} of ${loaded.size} cards")
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     shown.forEach { hit ->
-                        val printing = CardImport.printingId(hit.id)
+                        val printing = PrintingId(hit.id)
                         val owned = ownedCounts[printing] ?: 0
                         val loose = unfiledCounts[printing] ?: 0
                         CatalogCardRow(

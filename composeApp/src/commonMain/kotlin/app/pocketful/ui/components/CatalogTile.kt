@@ -30,7 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.pocketful.data.CardArt
-import app.pocketful.data.RemoteSet
+import app.pocketful.data.CatalogSet
 import app.pocketful.domain.TcgGame
 import app.pocketful.ui.theme.AppIcons
 import app.pocketful.ui.theme.AppShape
@@ -51,7 +51,7 @@ import coil3.compose.AsyncImage
 /**
  * A game, as the front door to its catalog.
  *
- * The plate is drawn rather than fetched. The set and series wordmarks come off TCGdex,
+ * The plate is drawn rather than fetched. The set and series logos come from the catalog,
  * but there is no comparable source for the games themselves, and shipping publisher
  * logos into the binary is a licensing question rather than a layout one -- so the tile
  * carries an emblem of the app's own from [GameMarks] instead, above the game's name.
@@ -150,7 +150,7 @@ fun GameTile(
  */
 @Composable
 fun SetTile(
-    set: RemoteSet,
+    set: CatalogSet,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -309,7 +309,7 @@ private fun LogoPanel(
 }
 
 /** "102 cards · 1999", with whichever halves the catalog actually knows. */
-private fun RemoteSet.tileCaption(): String = listOfNotNull(
+private fun CatalogSet.tileCaption(): String = listOfNotNull(
     officialCount?.let { "$it ${if (it == 1) "card" else "cards"}" },
     releaseYear,
 ).joinToString(" · ").ifEmpty { id }

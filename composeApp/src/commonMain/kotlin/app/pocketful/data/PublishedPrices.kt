@@ -9,124 +9,58 @@ import io.ktor.http.isSuccess
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 
 /**
- * What every card is worth, as one file.
+ * What every published printing is worth, as one file.
  *
- * The mirror image of [PublishedCatalog], and deliberately a separate document with its
- * own schedule. The catalog is a thing with no expiry date -- a set has not changed since
- * the day it was printed -- and that is precisely what lets the app download it once and
- * simply keep it. A price is true for about a day. Putting the two in one file would give
- * the whole thing the shorter of the two lifetimes, so they never share a file, a tag or
- * a TTL.
+ * Built nightly by Pocketful-Catalog from TCGplayer's own figures (by way of tcgcsv.com) for
+ * every printing that has a TCGplayer product linked in the catalog, and published beside the
+ * catalog as `prices/prices.json.gz`. Keyed by printing ID -- `ptcg-en-base01-4_1st-edition-holo`
+ * -- which is exactly the app's variant ID, so pricing a collection is a map lookup per card.
  *
- * Built nightly by [Pocketful-Catalog](https://github.com/TronVonDoom/Pocketful-Catalog)
- * from TCGplayer's own catalog by way of tcgcsv.com. One client asks and everybody
- * downloads the answer, which is both far gentler than one request per card per user and
- * the arrangement that service's terms actually require.
- *
- * The gain over asking TCGdex per card is not subtle. TCGdex carries a TCGplayer price
- * for some of the catalog; this covers 20,064 of 23,548 cards, which is essentially every
- * card TCGplayer sells -- the remainder being Pokemon TCG Pocket, which is a phone game,
- * and Trainer Kits, which were never sold as singles. Neither has a market price to miss.
+ * A separate file from the catalog on purpose. A set file never changes; a price is true for
+ * about a day. Kept together, the catalog would inherit the price's lifetime.
  */
 @Serializable
 data class PublishedPrices(
     val schema: Int = 0,
     val fetchedAt: String? = null,
-    val source: String = "tcgplayer",
-    val unit: String = "usd_cents",
-    /**
-     * Card id to a price per printing.
-     *
-     * The inner keys are TCGplayer's own printing names in the spelling TCGdex uses --
-     * "normal", "holofoil", "reverseHolofoil" -- which is not a coincidence and not a
-     * translation layer: the build writes them that way so that [CardImport.priceKeys],
-     * which already knew how to choose between them, needs no idea where the figure came
-     * from.
-     */
-    val cards: Map<String, Map<String, Long>> = emptyMap(),
-    /**
-     * Card id to special printing to a price per printing: `mep-070` -> `holo~pokemon-center`
-     * -> `holofoil`. See [PublishedSpecial.priceKey].
-     *
-     * Separate from [cards] so that a stamped copy's figure can never be read as the plain
-     * card's, by this build or by one from before stamps existed.
-     */
-    val special: Map<String, Map<String, Map<String, Long>>> = emptyMap(),
-    /**
-     * Every figure from the last day the price job recorded before this one, in the same
-     * shape as [cards] and [special]. What a price tag measures its daily move against,
-     * without the app downloading any history.
-     */
+    /** The day the figures are for, `yyyy-MM-dd`. */
+    val date: String? = null,
+    val currency: String = "USD",
+    /** Printing ID to market price, in cents. */
+    val printings: Map<String, Long> = emptyMap(),
+    /** The same figures on the last day before this one that the job recorded. */
     val previous: PreviousPrices? = null,
 ) {
-    val isUsable: Boolean get() = cards.isNotEmpty() && schema == SCHEMA
+    val isUsable: Boolean get() = schema == SCHEMA
 
-    /**
-     * Cents for one special printing, in the caller's order of preference.
-     *
-     * Falls back only within that printing's own quotes -- never to the plain card's. A
-     * Pokémon Center Tyrunt with no quote of its own is unpriced, not worth a tenth of itself.
-     */
-    fun centsForSpecial(cardId: String, priceKey: String, finishKeys: List<String>): Long? {
-        val quotes = special[cardId]?.get(priceKey) ?: return null
-        return finishKeys.firstNotNullOfOrNull { quotes[it] } ?: quotes.values.firstOrNull()
-    }
+    fun cents(printingId: String): Long? = printings[printingId]?.takeIf { it > 0 }
 
-    /** The same card's figure on the previous day, chosen by the same keys. */
-    fun previousCentsFor(cardId: String, finishKeys: List<String>): Long? {
-        val quotes = previous?.cards?.get(cardId) ?: return null
-        return finishKeys.firstNotNullOfOrNull { quotes[it] } ?: quotes.values.firstOrNull()
-    }
-
-    fun previousCentsForSpecial(cardId: String, priceKey: String, finishKeys: List<String>): Long? {
-        val quotes = previous?.special?.get(cardId)?.get(priceKey) ?: return null
-        return finishKeys.firstNotNullOfOrNull { quotes[it] } ?: quotes.values.firstOrNull()
-    }
-
-    /** Cents for the first printing that matches, in the caller's order of preference. */
-    fun centsFor(cardId: String, finishKeys: List<String>): Long? {
-        val quotes = cards[cardId] ?: return null
-        finishKeys.firstNotNullOfOrNull { quotes[it] }?.let { return it }
-        // The card is priced, just not in the printing that was asked for. One figure is a
-        // far better answer than none -- a reverse holo with only a normal quote is worth
-        // roughly a normal, and certainly not nothing.
-        return quotes.values.firstOrNull()
-    }
+    fun previousCents(printingId: String): Long? = previous?.printings?.get(printingId)?.takeIf { it > 0 }
 
     companion object {
-        const val SCHEMA: Int = 1
-
-        private val json = Json {
-            ignoreUnknownKeys = true
-            isLenient = true
-            explicitNulls = false
-        }
+        const val SCHEMA: Int = 2
 
         fun parse(text: String): PublishedPrices? =
-            runCatching { json.decodeFromString<PublishedPrices>(text) }
+            runCatching { CatalogJson.decodeFromString<PublishedPrices>(text) }
                 .getOrNull()
                 ?.takeIf { it.isUsable }
     }
 }
 
-/** One earlier day of the price file. See [PublishedPrices.previous]. */
 @Serializable
 data class PreviousPrices(
     val date: String? = null,
-    val cards: Map<String, Map<String, Long>> = emptyMap(),
-    val special: Map<String, Map<String, Map<String, Long>>> = emptyMap(),
+    val printings: Map<String, Long> = emptyMap(),
 )
 
 /**
- * Getting that file onto the device and keeping it current.
+ * Getting the price file onto the device and keeping it current.
  *
- * Shaped like [CatalogDownload] with one deliberate difference: this document *does*
- * expire, so the refresh window is a day rather than the better part of a week. What is on
- * disk is still preferred over a fetch that fails, because yesterday's prices are a good
- * answer and no prices is not one.
+ * Shaped like [CatalogDownload], with a day for a refresh window: the file is rebuilt nightly.
+ * What is on disk is still preferred over a fetch that fails, because yesterday's prices are a
+ * good answer and no prices is not one.
  */
 class PriceDownload(
     private val storage: SaveStorage,
@@ -138,32 +72,23 @@ class PriceDownload(
     var outcome: Outcome = Outcome.Unavailable
         private set
 
-    suspend fun ensure(nowSeconds: Long): PublishedPrices? {
+    suspend fun ensure(base: String, nowSeconds: Long, force: Boolean = false): PublishedPrices? {
         val onDisk = read()
-
         if (onDisk != null) {
-            val age = nowSeconds - (readStampSeconds() ?: 0L)
-            // A file built before this build's newest field is fetched again now rather than
-            // when the day is up. It is not wrong, but it is missing figures the app would
-            // show: without this, a stamped card added the day stamps arrived sat unpriced
-            // for up to twenty hours beside a chart that already knew what it was worth.
-            val outdated = (onDisk.fetchedAt ?: "") < MINIMUM_FETCHED_AT
-            if (age in 0 until REFRESH_AFTER_SECONDS && !outdated) {
+            val age = nowSeconds - (readStamp() ?: 0L)
+            if (!force && age in 0 until REFRESH_AFTER_SECONDS) {
                 outcome = Outcome.FromDisk
                 return onDisk
             }
-            val fresh = download()
+            val fresh = download(base, nowSeconds)
             if (fresh != null) {
                 outcome = Outcome.Refreshed
                 return fresh
             }
-            // Stale but real. A price from yesterday is within a rounding error of today's
-            // on almost every card, and is incomparably better than a dash.
             outcome = Outcome.FromDisk
             return onDisk
         }
-
-        val fetched = download()
+        val fetched = download(base, nowSeconds)
         outcome = if (fetched != null) Outcome.Downloaded else Outcome.Unavailable
         return fetched
     }
@@ -178,49 +103,35 @@ class PriceDownload(
         return parsed
     }
 
-    private suspend fun readStampSeconds(): Long? =
+    private suspend fun readStamp(): Long? =
         runCatching { storage.read(STAMP_FILE)?.trim()?.toLongOrNull() }.getOrNull()
 
     /** Fetch, decompress, parse, and only then write -- so a bad download costs nothing. */
-    private suspend fun download(): PublishedPrices? = runCatching {
-        val response = client.get(ASSET_URL)
-        if (!response.status.isSuccess()) return null
-
+    private suspend fun download(base: String, nowSeconds: Long): PublishedPrices? = runCatching {
+        val response = client.get("${base.trimEnd('/')}/$PATH")
+        if (!response.status.isSuccess()) return@runCatching null
         val bytes = response.readRawBytes()
         val parsed = withContext(Dispatchers.Default) {
             val text = gunzipToText(bytes) ?: return@withContext null
             PublishedPrices.parse(text)?.let { it to text }
-        } ?: return null
-
+        } ?: return@runCatching null
         runCatching {
             storage.write(FILE, parsed.second)
-            storage.write(STAMP_FILE, nowEpochSeconds().toString())
+            storage.write(STAMP_FILE, nowSeconds.toString())
         }
         parsed.first
     }.getOrNull()
 
     companion object {
-        /** A fixed tag whose asset is replaced nightly, so this URL means "today's prices". */
-        const val ASSET_URL: String =
-            "https://github.com/TronVonDoom/Pocketful-Catalog/releases/download/prices/" +
-                "prices-v${PublishedPrices.SCHEMA}.json.gz"
+        const val PATH: String = "prices/prices.json.gz"
+        const val FILE: String = "prices-v2.json"
+        const val STAMP_FILE: String = "prices-v2.stamp"
 
-        const val FILE: String = "prices-published.json"
-        const val STAMP_FILE: String = "prices-published.stamp"
-
-        /** A day, because that is how often the figures behind it are rebuilt. */
+        /** Twenty hours: the figures behind it are rebuilt once a day. */
         const val REFRESH_AFTER_SECONDS: Long = 20 * 60 * 60
 
-        /**
-         * The oldest price file this build is satisfied with, by its `fetchedAt`: the first
-         * one to carry special printings and the previous day's figures. Raised when the app
-         * starts reading something the file did not always have. ISO timestamps compare
-         * correctly as text.
-         */
-        const val MINIMUM_FETCHED_AT: String = "2026-09-13T02:00:00Z"
-
         fun defaultClient(): HttpClient = HttpClient {
-            install(UserAgent) { agent = TcgDex.USER_AGENT }
+            install(UserAgent) { agent = Network.USER_AGENT }
             install(HttpTimeout) {
                 connectTimeoutMillis = 10_000
                 requestTimeoutMillis = 60_000

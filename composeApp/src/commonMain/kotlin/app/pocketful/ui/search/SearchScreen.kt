@@ -31,9 +31,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import app.pocketful.data.RemoteSet
+import app.pocketful.data.CatalogSet
 import app.pocketful.data.SearchHit
-import app.pocketful.data.game
 import app.pocketful.domain.CardBrief
 import app.pocketful.domain.CollectionSnapshot
 import app.pocketful.domain.PrintingId
@@ -103,7 +102,7 @@ fun SearchScreen(
      */
     game: TcgGame?,
     onGameChange: (TcgGame?) -> Unit,
-    onOpenSet: (RemoteSet) -> Unit,
+    onOpenSet: (CatalogSet) -> Unit,
     onAddRemoteCard: (SearchHit) -> Unit,
     onAddLocalCard: (CardBrief) -> Unit,
     importing: Boolean,
@@ -311,7 +310,7 @@ private fun LazyListScope.gameGrid(browser: CatalogBrowser, onPick: (TcgGame) ->
 private fun LazyListScope.setGrid(
     browser: CatalogBrowser,
     groups: List<SeriesGroup>,
-    onOpenSet: (RemoteSet) -> Unit,
+    onOpenSet: (CatalogSet) -> Unit,
 ) {
     if (groups.isEmpty()) {
         item {
@@ -399,7 +398,7 @@ private fun SortPanel(browser: CatalogBrowser, eras: Int, modifier: Modifier = M
  * while someone typing "charizard" is not. Ranking exact prefixes first and capping the
  * list keeps this a shortcut rather than a second wall of results.
  */
-private fun LazyListScope.setMatches(sets: List<RemoteSet>, onOpenSet: (RemoteSet) -> Unit) {
+private fun LazyListScope.setMatches(sets: List<CatalogSet>, onOpenSet: (CatalogSet) -> Unit) {
     if (sets.isEmpty()) return
     item { SectionHeader("Sets · ${sets.size}", Modifier.padding(top = 4.dp)) }
     // Split by game on the same rule the card results use, and for the same reason: at
@@ -514,7 +513,7 @@ private fun LazyListScope.cardResults(
 }
 
 /** The handful of sets worth offering as a shortcut, best guess first. */
-private fun List<RemoteSet>.matching(query: String): List<RemoteSet> {
+private fun List<CatalogSet>.matching(query: String): List<CatalogSet> {
     if (query.length < 2) return emptyList()
     val q = query.lowercase()
     return asSequence()
@@ -522,7 +521,7 @@ private fun List<RemoteSet>.matching(query: String): List<RemoteSet> {
         .sortedWith(
             // A prefix match is what was meant; among equals the newest set is the one
             // most likely being looked for, since that is what people are opening.
-            compareByDescending<RemoteSet> { it.name.lowercase().startsWith(q) }
+            compareByDescending<CatalogSet> { it.name.lowercase().startsWith(q) }
                 .thenByDescending { it.releaseDate ?: "" },
         )
         .take(6)

@@ -57,15 +57,15 @@ fun CardThumb(
             .border(1.dp, Color.White.copy(alpha = 0.12f), shape),
     ) {
         CardArtwork(
-            artStem = brief.artUrl,
-        artUrl = brief.artAltUrl,
+            art = brief.art,
+            back = brief.back,
             type = brief.type,
             modifier = Modifier.fillMaxSize(),
         )
         // A static highlight rather than the animated sheen: a scrolling list of forty
         // rows running forty infinite animations is a battery cost with no payoff at
         // 38dp wide.
-        if (brief.finish != Finish.NON_HOLO && brief.artUrl == null) {
+        if (brief.finish != Finish.NON_HOLO && brief.art == null) {
             Box(
                 Modifier
                     .fillMaxSize()

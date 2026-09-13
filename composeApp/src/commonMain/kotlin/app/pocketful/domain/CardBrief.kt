@@ -28,13 +28,13 @@ data class CardBrief(
     /** What [marketValue] is counted in. See CollectionSnapshot.currencyOf. */
     val currency: Currency = Currency.USD,
     /**
-     * The base art URL, without a size or extension. TCGdex serves every rendition off
-     * one stem, so the row that wants a thumbnail and the sheet that wants a full render
-     * ask the same [CardArt] helper for different sizes of the same string.
+     * The picture, as a stem: the printing's own where it has one, else its card's. The row
+     * that wants a thumbnail and the sheet that wants the full picture ask [app.pocketful.data.CardArt]
+     * for different sizes of the same string.
      */
-    val artUrl: String? = null,
-    /** A finished URL, used when there is no [artUrl] stem. See Printing.imageAltUrl. */
-    val artAltUrl: String? = null,
+    val art: String? = null,
+    /** The card back to draw when there is no [art]. See Printing.back. */
+    val back: String? = null,
     /** How far [marketValue] moved since the price file's previous day, or null. */
     val change: Money? = null,
 ) {
@@ -75,8 +75,8 @@ fun CollectionSnapshot.brief(variantId: VariantId): CardBrief? {
         badge = variant.badge,
         marketValue = marketValue(variantId),
         currency = currencyOf(variantId),
-        artUrl = printing.imageUrl,
-        artAltUrl = printing.imageAltUrl,
+        art = variant.image ?: printing.image,
+        back = printing.back,
         change = changeOf(variantId),
     )
 }
