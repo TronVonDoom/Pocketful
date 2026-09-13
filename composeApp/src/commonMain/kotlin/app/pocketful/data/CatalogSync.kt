@@ -139,7 +139,12 @@ class CatalogSync(private val api: TcgDex) {
                 )
 
             for (variant in variantsByPrinting[printingId].orEmpty()) {
-                val quote = card.marketQuote(priceKeysFor(variant.finish)) ?: continue
+                val special = variant.special
+                val quote = if (special == null) {
+                    card.marketQuote(priceKeysFor(variant.finish))
+                } else {
+                    card.specialQuote(CardImport.specialPriceKey(variant.finish, special), priceKeysFor(variant.finish))
+                } ?: continue
                 prices[variant.id] = PriceSnapshot(
                     variantId = variant.id,
                     market = Money(quote.cents),
@@ -222,7 +227,16 @@ class CatalogSync(private val api: TcgDex) {
         val priced = mutableMapOf<VariantId, PriceSnapshot>()
         for (variant in snapshot.variants.values) {
             val parts = CardImport.decompose(variant.id) ?: continue
-            val cents = api.publishedPrice(parts.remoteId, priceKeysFor(variant.finish)) ?: continue
+            val special = parts.special
+            val cents = if (special == null) {
+                api.publishedPrice(parts.remoteId, priceKeysFor(variant.finish))
+            } else {
+                api.publishedSpecialPrice(
+                    parts.remoteId,
+                    CardImport.specialPriceKey(variant.finish, special),
+                    priceKeysFor(variant.finish),
+                )
+            } ?: continue
             priced[variant.id] = PriceSnapshot(
                 variantId = variant.id,
                 market = Money(cents),
@@ -301,6 +315,10 @@ class CatalogSync(private val api: TcgDex) {
                 printingId = printingId,
                 finish = parts.finish,
                 edition = parts.edition,
+                special = parts.special,
+                specialLabel = parts.special?.let { key ->
+                    published.special.firstOrNull { it.key == key && CardImport.finishOfType(it.type) == parts.finish }?.label
+                },
             )
         }
         return Recovered(cards, printings, variants)

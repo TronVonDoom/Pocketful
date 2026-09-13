@@ -93,6 +93,10 @@ class TcgDex(
     fun publishedPrice(cardId: String, finishKeys: List<String>): Long? =
         prices?.centsFor(cardId, finishKeys)
 
+    /** The same, for one special printing of the card. See [PublishedPrices.centsForSpecial]. */
+    fun publishedSpecialPrice(cardId: String, priceKey: String, finishKeys: List<String>): Long? =
+        prices?.centsForSpecial(cardId, priceKey, finishKeys)
+
     /**
      * The published record for one card, if the catalog is here and knows it.
      *
@@ -186,11 +190,18 @@ class TcgDex(
             // The normal path. Static from disk, price from the wire, and the catalog
             // wins every field they both carry -- it is the one that was audited.
             local != null && live != null ->
-                local.copy(pricing = live.pricing, publishedQuotes = prices?.cards?.get(id))
-            // Offline, or upstream having an afternoon. Complete but unpriced, which
-            // CardImport already handles: a card with no quote keeps whatever price the
-            // snapshot held, so this can never zero out a figure someone else fetched.
-            local != null -> local
+                local.copy(
+                    pricing = live.pricing,
+                    publishedQuotes = prices?.cards?.get(id),
+                    publishedSpecialQuotes = prices?.special?.get(id),
+                )
+            // Offline, or upstream having an afternoon. Complete, and priced from the
+            // published file if that is on the device; a card with no quote keeps whatever
+            // price the snapshot held, so this can never zero out a figure fetched before.
+            local != null -> local.copy(
+                publishedQuotes = prices?.cards?.get(id),
+                publishedSpecialQuotes = prices?.special?.get(id),
+            )
             // A card printed since the catalog was last built. Nothing local to prefer,
             // so the live document is the whole answer, exactly as it always was.
             else -> live?.copy(publishedQuotes = prices?.cards?.get(id))
@@ -717,6 +728,15 @@ data class RemoteCard(
      */
     @kotlinx.serialization.Transient
     val publishedQuotes: Map<String, Long>? = null,
+    /**
+     * The card's special printings, from the published catalog. The live API has no such
+     * field; [PublishedCatalog.remoteCard] fills it in, as it does [imageAlt].
+     */
+    @kotlinx.serialization.Transient
+    val special: List<PublishedSpecial> = emptyList(),
+    /** Their prices, by [PublishedSpecial.priceKey]. [TcgDex.card] stamps it. */
+    @kotlinx.serialization.Transient
+    val publishedSpecialQuotes: Map<String, Map<String, Long>>? = null,
     // Left as a raw object: TCGplayer keys its prices by finish name, and which keys
     // exist differs card to card ("holofoil", "reverseHolofoil", "1stEditionNormal"...).
     // A typed class here would have to enumerate every finish the hobby has ever had.
@@ -746,6 +766,18 @@ data class RemoteCard(
      */
     fun marketQuote(finishKeys: List<String>): Quote? =
         publishedQuote(finishKeys) ?: tcgplayerQuote(finishKeys)
+
+    /**
+     * What one special printing is worth, from the published file only.
+     *
+     * No fallback to the plain card and none to TCGdex's pricing, which knows nothing of
+     * stamps: a figure for the wrong printing is worse than a dash.
+     */
+    fun specialQuote(priceKey: String, finishKeys: List<String>): Quote? {
+        val quotes = publishedSpecialQuotes?.get(priceKey) ?: return null
+        val cents = finishKeys.firstNotNullOfOrNull { quotes[it] } ?: quotes.values.firstOrNull()
+        return cents?.takeIf { it > 0 }?.let { Quote(it, Currency.USD, "tcgplayer") }
+    }
 
     private fun publishedQuote(finishKeys: List<String>): Quote? {
         val quotes = publishedQuotes ?: return null

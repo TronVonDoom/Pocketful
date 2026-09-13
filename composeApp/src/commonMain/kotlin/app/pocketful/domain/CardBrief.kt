@@ -48,6 +48,7 @@ data class CardBrief(
         rarity?.let { append(' '); append(it.lowercase()) }
         append(' ')
         append(finish.label.lowercase())
+        badge?.let { append(' '); append(it.lowercase()) }
     }
 
     /** Leading digits of the collector number, for ordering a set the way it was printed. */
@@ -89,12 +90,21 @@ fun CollectionSnapshot.brief(variantId: VariantId): CardBrief? {
  *
  * Ordered by [Finish] and then [Edition], both of which are declared plainest-first, so
  * "Normal" leads and the exotic finishes trail in the order a collector would list them.
+ * The special printings -- the stamped and pattern copies -- come after every plain one,
+ * in the order the catalog lists them.
  */
 fun CollectionSnapshot.variantBriefs(variantId: VariantId): List<CardBrief> {
     val printingId = variants[variantId]?.printingId ?: return listOfNotNull(brief(variantId))
     return variants.values
         .filter { it.printingId == printingId }
-        .sortedWith(compareBy({ it.finish.ordinal }, { it.edition.ordinal }, { it.language.ordinal }))
+        .sortedWith(
+            compareBy(
+                { it.special != null },
+                { it.finish.ordinal },
+                { it.edition.ordinal },
+                { it.language.ordinal },
+            ),
+        )
         .mapNotNull { brief(it.id) }
 }
 
@@ -117,7 +127,11 @@ fun CollectionSnapshot.allBriefs(): List<CardBrief> =
  * representative row is also the picker's default answer.
  */
 fun List<CardBrief>.byPrinting(): List<CardBrief> =
-    groupBy { it.printingId }.values.map { group -> group.minBy { it.finish.ordinal } }
+    groupBy { it.printingId }.values.map { group ->
+        // A stamped copy shares its finish with the plain one and badges longer than it, so
+        // the shorter badge is what keeps the Pokémon Center Tyrunt from standing for Tyrunt.
+        group.minWith(compareBy({ it.finish.ordinal }, { it.badge?.length ?: 0 }))
+    }
 
 /**
  * Ranked search. Exact and prefix name matches are floated above substring hits, because

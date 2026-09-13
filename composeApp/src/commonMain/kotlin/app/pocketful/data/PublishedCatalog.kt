@@ -16,8 +16,8 @@ import kotlinx.serialization.json.Json
  * real number of users, one request per card per sync is a great deal to ask of a free API
  * that sets `Cache-Control: no-store` and therefore has nothing absorbing repeats.
  *
- * 23,548 cards across 218 sets, 1.1MB on the wire. It carries only the thirteen fields the
- * app actually draws; attacks, abilities and the detailed variant breakdown stay in the
+ * 23,548 cards across 218 sets, 1.1MB on the wire. It carries only the fields the
+ * app actually draws, special printings included; attacks and abilities stay in the
  * build repository where they cost nothing and a phone never downloads them.
  *
  * Prices are deliberately absent, and not merely postponed: this document answers what a
@@ -83,6 +83,7 @@ data class PublishedCatalog(
             description = card.description,
             set = RemoteSetRef(id = set.id, name = set.name, cardCount = set.cardCount),
             variants = card.variants,
+            special = card.special,
             // The whole reason a card with no TCGdex asset can still be drawn. About 7% of
             // the catalog has none, and for those this is the only artwork there is.
             imageAlt = card.imageAlt,
@@ -257,6 +258,13 @@ data class PublishedCard(
     val hp: Int? = null,
     val types: List<String> = emptyList(),
     val description: String? = null,
+    /**
+     * The printings beside the plain ones: MEP Tyrunt's Pokémon Center stamp, a Prismatic
+     * Evolutions common's Poké Ball reverse, a Jungle 1st Edition. Each becomes a variant of
+     * its own when the card is imported. Absent from catalogs built before they existed,
+     * which is the same as a card having none.
+     */
+    val special: List<PublishedSpecial> = emptyList(),
 ) {
     fun toHit(set: PublishedSet, total: String?, game: TcgGame): SearchHit = SearchHit(
         id = id,
@@ -269,6 +277,22 @@ data class PublishedCard(
         artUrl = imageAlt,
         game = game,
     )
+}
+
+/**
+ * One special printing of a card, as the catalog names it.
+ *
+ * [type] is TCGdex's press run -- "normal", "holo", "reverse" -- [key] is what the variant id
+ * and the price file address it by, and [label] is what a person reads.
+ */
+@Serializable
+data class PublishedSpecial(
+    val type: String,
+    val key: String,
+    val label: String = key,
+) {
+    /** How the price file keys this printing's quotes: `holo~pokemon-center`. */
+    val priceKey: String get() = "$type~$key"
 }
 
 @Serializable

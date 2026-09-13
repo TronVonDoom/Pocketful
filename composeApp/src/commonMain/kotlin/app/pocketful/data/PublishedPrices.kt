@@ -47,8 +47,27 @@ data class PublishedPrices(
      * from.
      */
     val cards: Map<String, Map<String, Long>> = emptyMap(),
+    /**
+     * Card id to special printing to a price per printing: `mep-070` -> `holo~pokemon-center`
+     * -> `holofoil`. See [PublishedSpecial.priceKey].
+     *
+     * Separate from [cards] so that a stamped copy's figure can never be read as the plain
+     * card's, by this build or by one from before stamps existed.
+     */
+    val special: Map<String, Map<String, Map<String, Long>>> = emptyMap(),
 ) {
     val isUsable: Boolean get() = cards.isNotEmpty() && schema == SCHEMA
+
+    /**
+     * Cents for one special printing, in the caller's order of preference.
+     *
+     * Falls back only within that printing's own quotes -- never to the plain card's. A
+     * Pokémon Center Tyrunt with no quote of its own is unpriced, not worth a tenth of itself.
+     */
+    fun centsForSpecial(cardId: String, priceKey: String, finishKeys: List<String>): Long? {
+        val quotes = special[cardId]?.get(priceKey) ?: return null
+        return finishKeys.firstNotNullOfOrNull { quotes[it] } ?: quotes.values.firstOrNull()
+    }
 
     /** Cents for the first printing that matches, in the caller's order of preference. */
     fun centsFor(cardId: String, finishKeys: List<String>): Long? {

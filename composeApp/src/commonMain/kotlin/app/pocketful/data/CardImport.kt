@@ -75,8 +75,8 @@ object CardImport {
 
     fun printingId(card: RemoteCard): PrintingId = printingId(card.id)
 
-    fun variantId(card: RemoteCard, finish: Finish, edition: Edition): VariantId =
-        variantId(card.id, finish, edition)
+    fun variantId(card: RemoteCard, finish: Finish, edition: Edition, special: String? = null): VariantId =
+        variantId(card.id, finish, edition, special)
 
     // The id-only forms. A search row and a fetched card are the same card at two levels
     // of detail, so they have to key to the same rows -- otherwise filling a want list
@@ -86,12 +86,35 @@ object CardImport {
 
     fun printingId(remoteId: String): PrintingId = PrintingId("tcgdex-$remoteId")
 
-    fun variantId(remoteId: String, finish: Finish, edition: Edition): VariantId {
+    fun variantId(remoteId: String, finish: Finish, edition: Edition, special: String? = null): VariantId {
         val suffix = buildString {
             append(finish.name.lowercase())
             if (edition != Edition.UNLIMITED) append("-").append(edition.name.lowercase())
+            // After a "~", which no card id, finish or edition contains, so the plain ids
+            // every existing collection holds are unchanged and this one still reads back.
+            if (special != null) append(SPECIAL).append(special)
         }
         return VariantId("tcgdex-$remoteId-$suffix")
+    }
+
+    private const val SPECIAL = "~"
+
+    /** The press run a catalog special printing was made on, as a [Finish]. */
+    fun finishOfType(type: String): Finish = when (type.lowercase()) {
+        "normal" -> Finish.NON_HOLO
+        "holo" -> Finish.HOLO
+        "reverse" -> Finish.REVERSE_HOLO
+        else -> Finish.OTHER
+    }
+
+    /** The key a special printing's quotes are filed under in the price file. */
+    fun specialPriceKey(finish: Finish, special: String): String {
+        val type = when (finish) {
+            Finish.NON_HOLO -> "normal"
+            Finish.REVERSE_HOLO -> "reverse"
+            else -> "holo"
+        }
+        return "$type~$special"
     }
 
     /**
@@ -107,8 +130,10 @@ object CardImport {
      * unlimited card belonging to a set called "...-holo".
      */
     fun decompose(variantId: VariantId): Decomposed? {
-        val body = variantId.value.removePrefix("tcgdex-")
-        if (body == variantId.value) return null
+        val whole = variantId.value.removePrefix("tcgdex-")
+        if (whole == variantId.value) return null
+        val body = whole.substringBefore(SPECIAL)
+        val special = whole.substringAfter(SPECIAL, missingDelimiterValue = "").ifEmpty { null }
 
         val candidates = buildList {
             for (finish in Finish.entries) {
@@ -126,14 +151,19 @@ object CardImport {
             val marker = "-$suffix"
             if (body.endsWith(marker)) {
                 val remoteId = body.dropLast(marker.length)
-                if (remoteId.isNotEmpty()) return Decomposed(remoteId, finish, edition)
+                if (remoteId.isNotEmpty()) return Decomposed(remoteId, finish, edition, special)
             }
         }
         return null
     }
 
     /** What a variant id was made of. */
-    data class Decomposed(val remoteId: String, val finish: Finish, val edition: Edition)
+    data class Decomposed(
+        val remoteId: String,
+        val finish: Finish,
+        val edition: Edition,
+        val special: String? = null,
+    )
 
     /**
      * One pocket per card, each in the press run that card was actually printed in.
@@ -252,7 +282,11 @@ object CardImport {
         val cardId = cardId(card)
         val printingId = printingId(card)
         val existing = snapshot.printings[printingId]
-        val firstEdition = edition == Edition.FIRST_EDITION || card.variants?.firstEdition == true
+        // Only when this press run *is* the 1st Edition. The upstream flag says one exists,
+        // which is true of every Jungle holo, and reading it as "this is one" priced the
+        // Unlimited copy at the 1st Edition figure. A 1st Edition is a special printing of
+        // its own now, with its own price.
+        val firstEdition = edition == Edition.FIRST_EDITION
 
         val domainCard = Card(
             id = cardId,
@@ -289,6 +323,35 @@ object CardImport {
                 id to Variant(id = id, printingId = printingId, finish = finish, edition = edition)
                 )
             card.marketQuote(priceKeys(finish, firstEdition))?.let { quote ->
+                prices = prices + (
+                    id to PriceSnapshot(
+                        variantId = id,
+                        market = Money(quote.cents),
+                        source = quote.source,
+                        currency = quote.currency,
+                        fetchedAtEpochSeconds = fetchedAtEpochSeconds,
+                    )
+                    )
+            }
+        }
+
+        // The stamped and pattern printings beside the plain ones, each its own variant at its
+        // own price. Priced from their own quotes only: a stamped copy with no quote is
+        // unpriced rather than worth whatever the plain card is.
+        for (printing in card.special) {
+            val finish = finishOfType(printing.type)
+            val id = variantId(card, finish, edition, printing.key)
+            variants = variants + (
+                id to Variant(
+                    id = id,
+                    printingId = printingId,
+                    finish = finish,
+                    edition = edition,
+                    special = printing.key,
+                    specialLabel = printing.label,
+                )
+                )
+            card.specialQuote(printing.priceKey, priceKeys(finish, firstEdition = false))?.let { quote ->
                 prices = prices + (
                     id to PriceSnapshot(
                         variantId = id,

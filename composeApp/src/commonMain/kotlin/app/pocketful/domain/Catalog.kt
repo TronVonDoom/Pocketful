@@ -77,12 +77,24 @@ data class Variant(
     val edition: Edition = Edition.UNLIMITED,
     val language: Language = Language.EN,
     val note: String? = null,
+    /**
+     * Which special printing this is, as the catalog keys it -- `pokemon-center`,
+     * `pokeball`, `1st-edition` -- or null for the plain press run of its finish.
+     *
+     * A string rather than another enum, because the hobby has a long tail of these (every
+     * World Championships deck signature is one) and a new stamp upstream should reach the
+     * app with the catalog rather than with a release. See the catalog's tools/variants.py.
+     */
+    val special: String? = null,
+    /** How [special] reads to a person: "Pokémon Center Stamp". Carried, not derived. */
+    val specialLabel: String? = null,
 ) {
     /** Short badge text, omitting anything that is the unremarkable default. */
     val badge: String?
         get() = listOfNotNull(
             edition.takeIf { it != Edition.UNLIMITED }?.label,
-            finish.takeIf { it != Finish.NON_HOLO }?.label,
+            finish.takeIf { it != Finish.NON_HOLO || special != null }?.label,
+            specialLabel ?: special,
             language.takeIf { it != Language.EN }?.name,
         ).takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
