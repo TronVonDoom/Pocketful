@@ -35,6 +35,8 @@ data class CardBrief(
     val artUrl: String? = null,
     /** A finished URL, used when there is no [artUrl] stem. See Printing.imageAltUrl. */
     val artAltUrl: String? = null,
+    /** How far [marketValue] moved since the price file's previous day, or null. */
+    val change: Money? = null,
 ) {
     /** Everything a text query should be able to hit, lowercased once. */
     val searchIndex: String = buildString {
@@ -75,6 +77,7 @@ fun CollectionSnapshot.brief(variantId: VariantId): CardBrief? {
         currency = currencyOf(variantId),
         artUrl = printing.imageUrl,
         artAltUrl = printing.imageAltUrl,
+        change = changeOf(variantId),
     )
 }
 

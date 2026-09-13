@@ -247,6 +247,7 @@ internal fun SavedSettings.toAppSettings() = AppSettings(
     abbreviateValues = abbreviateValues,
     defaultLayout = defaultLayout,
     defaultSheetCount = defaultSheetCount,
+    addingTo = addingTo?.let { app.pocketful.domain.ContainerId(it) },
 )
 
 internal fun AppSettings.toSaved() = SavedSettings(
@@ -256,4 +257,5 @@ internal fun AppSettings.toSaved() = SavedSettings(
     abbreviateValues = abbreviateValues,
     defaultLayout = defaultLayout,
     defaultSheetCount = defaultSheetCount,
+    addingTo = addingTo?.value,
 )

@@ -228,20 +228,24 @@ class CatalogSync(private val api: TcgDex) {
         for (variant in snapshot.variants.values) {
             val parts = CardImport.decompose(variant.id) ?: continue
             val special = parts.special
+            val keys = priceKeysFor(variant.finish)
             val cents = if (special == null) {
-                api.publishedPrice(parts.remoteId, priceKeysFor(variant.finish))
+                api.publishedPrice(parts.remoteId, keys)
             } else {
-                api.publishedSpecialPrice(
-                    parts.remoteId,
-                    CardImport.specialPriceKey(variant.finish, special),
-                    priceKeysFor(variant.finish),
-                )
+                api.publishedSpecialPrice(parts.remoteId, CardImport.specialPriceKey(variant.finish, special), keys)
             } ?: continue
+            val before = if (special == null) {
+                api.publishedPreviousPrice(parts.remoteId, keys)
+            } else {
+                api.publishedPreviousSpecialPrice(parts.remoteId, CardImport.specialPriceKey(variant.finish, special), keys)
+            }
             priced[variant.id] = PriceSnapshot(
                 variantId = variant.id,
                 market = Money(cents),
                 source = "tcgplayer",
                 fetchedAtEpochSeconds = nowEpochSeconds,
+                previous = before?.let { Money(it) },
+                previousDate = before?.let { api.publishedPreviousDate },
             )
         }
         return priced
@@ -322,6 +326,38 @@ class CatalogSync(private val api: TcgDex) {
             )
         }
         return Recovered(cards, printings, variants)
+    }
+
+    /**
+     * The special printings a collection's cards have that its catalog rows do not.
+     *
+     * An import fans a card out into every printing the catalog lists, stamps included --
+     * but only from the day the catalog began listing them. A Tyrunt filed before that has
+     * a holo and nothing else, so its Pokémon Center stamp could never be chosen. This adds
+     * the missing variants from the published catalog, asking the network nothing, and
+     * leaves every existing row alone.
+     */
+    fun missingSpecialVariants(snapshot: CollectionSnapshot): Map<VariantId, Variant> {
+        val added = mutableMapOf<VariantId, Variant>()
+        for ((printingId, existing) in snapshot.variants.values.groupBy { it.printingId }) {
+            val plain = existing.firstOrNull { it.special == null } ?: continue
+            val parts = CardImport.decompose(plain.id) ?: continue
+            val published = api.publishedCard(parts.remoteId) ?: continue
+            for (printing in published.special) {
+                val finish = CardImport.finishOfType(printing.type)
+                val id = CardImport.variantId(parts.remoteId, finish, plain.edition, printing.key)
+                if (id in snapshot.variants) continue
+                added[id] = Variant(
+                    id = id,
+                    printingId = printingId,
+                    finish = finish,
+                    edition = plain.edition,
+                    special = printing.key,
+                    specialLabel = printing.label,
+                )
+            }
+        }
+        return added
     }
 
     /** Catalog rows rebuilt from the published catalog, for a collection that lost them. */

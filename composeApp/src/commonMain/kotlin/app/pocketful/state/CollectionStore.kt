@@ -26,6 +26,8 @@ import app.pocketful.domain.Edition
 import app.pocketful.domain.Finish
 import app.pocketful.domain.Grade
 import app.pocketful.domain.Location
+import app.pocketful.domain.Sale
+import app.pocketful.domain.brief
 import app.pocketful.domain.Money
 import app.pocketful.domain.PokemonType
 import app.pocketful.domain.PriceSnapshot
@@ -51,6 +53,14 @@ data class AppSettings(
     // as a preset one, and an id-keyed lookup can only ever find the presets.
     val defaultLayout: BinderLayout = BinderLayout.POCKET_9,
     val defaultSheetCount: Int = 10,
+    /**
+     * Where a card added from search goes: a container, or null for unfiled.
+     *
+     * Remembered rather than asked every time, because someone sorting a stack of cards
+     * into one box is adding thirty cards to the same place, and a question they answer
+     * the same way thirty times is not a question.
+     */
+    val addingTo: ContainerId? = null,
 )
 
 val LocalAppSettings = staticCompositionLocalOf { AppSettings() }
@@ -426,6 +436,8 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
         grade: Grade? = null,
         notes: String? = null,
         container: ContainerId? = null,
+        acquiredDate: String? = null,
+        valueOverride: Money? = null,
     ): CopyId {
         val copyId = CopyId(mintId("copy") { it in snapshot.copies.keys.map(CopyId::value) })
         val copy = Copy(
@@ -434,12 +446,111 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
             condition = condition,
             grade = grade,
             acquiredPrice = acquiredPrice,
+            acquiredDate = acquiredDate,
+            valueOverride = valueOverride,
             notes = notes?.trim()?.takeIf { it.isNotBlank() },
             location = Location.Unassigned,
         )
         snapshot = snapshot.copy(copies = snapshot.copies + (copyId to copy))
         if (container != null) placeInContainer(container, copyId)
         return copyId
+    }
+
+    /**
+     * Takes one copy of a variant back out of [container] (or out of the unfiled pile).
+     *
+     * The minus on a quantity stepper. It removes the copy with the least recorded about it
+     * -- no price paid, no grade, no notes, not on the trade table -- so undoing a tap of
+     * the plus never throws away a card someone had taken the trouble to describe.
+     */
+    fun removeOneCopy(variantId: VariantId, container: ContainerId?): Boolean {
+        val candidates = snapshot.copies.values.filter { copy ->
+            copy.variantId == variantId && when (val location = copy.location) {
+                Location.Unassigned -> container == null
+                is Location.InContainer -> location.containerId == container
+                else -> false
+            }
+        }
+        val plainest = candidates.minByOrNull { copy ->
+            listOf(copy.acquiredPrice, copy.grade, copy.notes, copy.valueOverride).count { it != null } +
+                (if (copy.forTrade) 1 else 0)
+        } ?: return false
+        // Not deleteCopy: that prunes the card's catalog rows when its last copy goes, and
+        // this runs under a sheet whose plus button still needs them. The sheet prunes as it
+        // closes instead; see [pruneCatalog].
+        snapshot = snapshot.unfile(plainest.id).let { it.copy(copies = it.copies - plainest.id) }
+        return true
+    }
+
+    /** Drops catalog rows nothing points at. See [CollectionSnapshot.pruneOrphanedCatalog]. */
+    fun pruneCatalog() {
+        snapshot = snapshot.pruneOrphanedCatalog()
+    }
+
+    /** How many copies of a variant sit in [container], or unfiled when it is null. */
+    fun countIn(variantId: VariantId, container: ContainerId?): Int =
+        snapshot.copies.values.count { copy ->
+            copy.variantId == variantId && when (val location = copy.location) {
+                Location.Unassigned -> container == null
+                is Location.InContainer -> location.containerId == container
+                else -> false
+            }
+        }
+
+    /**
+     * Records that a copy was sold, and takes it out of the collection.
+     *
+     * What it was, what it cost and what it fetched are written into a [Sale] before the
+     * copy goes, because the copy's catalog rows may be pruned with it and a sale that could
+     * no longer say what was sold would be no record at all.
+     */
+    fun markSold(copyId: CopyId, soldPrice: Money, soldDate: String?) {
+        val copy = snapshot.copies[copyId] ?: return
+        val brief = snapshot.brief(copy.variantId)
+        val sale = Sale(
+            id = mintId("sale") { candidate -> snapshot.sales.any { it.id == candidate } },
+            variantId = copy.variantId,
+            name = brief?.name ?: copy.variantId.value,
+            setName = brief?.setName.orEmpty(),
+            number = brief?.collectorNumber.orEmpty(),
+            badge = brief?.badge,
+            soldPrice = soldPrice,
+            soldDate = soldDate,
+            acquiredPrice = copy.acquiredPrice,
+            acquiredDate = copy.acquiredDate,
+            condition = copy.condition,
+            grade = copy.grade,
+        )
+        deleteCopy(copyId)
+        snapshot = snapshot.copy(sales = listOf(sale) + snapshot.sales)
+    }
+
+    /** Forgets a sale, for one recorded by mistake. The card does not come back. */
+    fun deleteSale(saleId: String) {
+        snapshot = snapshot.copy(sales = snapshot.sales.filterNot { it.id == saleId })
+    }
+
+    /**
+     * The money side of one copy: what it cost, when it was acquired, and what its owner
+     * says it is worth instead of the market. Null clears each.
+     */
+    fun updateCopyMoney(copyId: CopyId, acquiredPrice: Money?, acquiredDate: String?, valueOverride: Money?) {
+        val existing = snapshot.copies[copyId] ?: return
+        snapshot = snapshot.copy(
+            copies = snapshot.copies + (
+                copyId to existing.copy(
+                    acquiredPrice = acquiredPrice,
+                    acquiredDate = acquiredDate?.trim()?.takeIf { it.isNotEmpty() },
+                    valueOverride = valueOverride,
+                )
+                ),
+        )
+    }
+
+    /** Grades a copy, or takes the grade back off it. */
+    fun setGrade(copyId: CopyId, grade: Grade?) {
+        val existing = snapshot.copies[copyId] ?: return
+        snapshot = snapshot.copy(copies = snapshot.copies + (copyId to existing.copy(grade = grade)))
     }
 
     fun markWanted(binderId: BinderId, ordinal: Int, variantId: VariantId, targetPrice: Money? = null) {

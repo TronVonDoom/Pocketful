@@ -130,7 +130,22 @@ data class ValueSummary(
     val alsoIn: Map<Currency, Money> = emptyMap(),
     /** How many cards are behind [marketValue] -- the honest divisor for an average. */
     val pricedCount: Int = 0,
+    /**
+     * The market value of only the copies with a price paid on record: the figure
+     * [costBasis] is actually comparable with. Comparing what four cards cost with what
+     * forty are worth was reporting a gain on every card nobody had typed a price for.
+     */
+    val basisMarketValue: Money = Money.ZERO,
+    /** How far [marketValue] moved since the price file's previous day, over the copies quoted on both. */
+    val dayChange: Money = Money.ZERO,
+    /** What those same copies were worth on that previous day: the base [dayChange] is a share of. */
+    val dayChangeBase: Money = Money.ZERO,
 ) {
+    /** The day's move as a percentage, or null when nothing was quoted on both days. */
+    val dayChangePercent: Double?
+        get() = if (dayChangeBase.isZero || currency != Currency.USD) null
+        else dayChange.cents.toDouble() / dayChangeBase.cents.toDouble() * 100.0
+
     /**
      * What the average card in [currency] is worth, or null when nothing is priced.
      *
@@ -148,7 +163,7 @@ data class ValueSummary(
             ?.sortedByDescending { it.value.cents }
             ?.joinToString(" · ") { it.value.format(currency = it.key) }
 
-    val unrealizedGain: Money get() = marketValue - costBasis
+    val unrealizedGain: Money get() = basisMarketValue - costBasis
 
     /**
      * Gain against what was paid, or null when the comparison would be meaningless.

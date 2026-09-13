@@ -13,6 +13,8 @@ data class CollectionSnapshot(
     val prices: Map<VariantId, PriceSnapshot> = emptyMap(),
     val binders: List<Binder> = emptyList(),
     val containers: List<Container> = emptyList(),
+    /** Copies that were sold, newest first. See [Sale]. */
+    val sales: List<Sale> = emptyList(),
 ) {
     fun binder(id: BinderId): Binder? = binders.firstOrNull { it.id == id }
 
@@ -53,10 +55,34 @@ data class CollectionSnapshot(
      * showing the raw number until real graded pricing is wired up.
      */
     fun valueOf(copy: Copy): Money {
+        copy.valueOverride?.let { return it }
         val base = marketValue(copy.variantId)
         if (copy.isGraded) return base
         return Money((base.cents * copy.condition.multiplier).toLong())
     }
+
+    /**
+     * What [valueOf] would have said on the price file's previous day, or null when that
+     * cannot be said: no earlier quote, or a value the owner set by hand, which has no
+     * yesterday to compare with.
+     */
+    fun previousValueOf(copy: Copy): Money? {
+        if (copy.valueOverride != null) return null
+        val before = prices[copy.variantId]?.previous ?: return null
+        if (copy.isGraded) return before
+        return Money((before.cents * copy.condition.multiplier).toLong())
+    }
+
+    /** How far a variant's market price moved since the previous day, or null. */
+    fun changeOf(variantId: VariantId): Money? {
+        val quote = prices[variantId] ?: return null
+        val before = quote.previous ?: return null
+        if (quote.market.isZero) return null
+        return quote.market - before
+    }
+
+    /** Every realised gain on record, summed. Sales with no price paid are left out. */
+    fun realizedGains(): Money = sales.mapNotNull { it.realizedGain }.fold(Money.ZERO) { a, b -> a + b }
 
     /**
      * Market totals, kept apart by the money they are counted in.
@@ -69,10 +95,34 @@ data class CollectionSnapshot(
         private val totals = mutableMapOf<Currency, Long>()
         private val counts = mutableMapOf<Currency, Int>()
 
+        var basis = Money.ZERO
+        var basisMarket = Money.ZERO
+        var change = Money.ZERO
+        var changeBase = Money.ZERO
+
         fun add(amount: Money, currency: Currency) {
             if (amount.isZero) return
             totals[currency] = (totals[currency] ?: 0L) + amount.cents
             counts[currency] = (counts[currency] ?: 0) + 1
+        }
+
+        /**
+         * One copy, into every running figure at once, so the market total, the cost basis
+         * and the day's move are always struck over the same cards.
+         */
+        fun add(snapshot: CollectionSnapshot, copy: Copy) {
+            val value = snapshot.valueOf(copy)
+            val currency = snapshot.currencyOf(copy.variantId)
+            add(value, currency)
+            copy.acquiredPrice?.let { paid ->
+                basis += paid
+                if (currency == Currency.USD) basisMarket += value
+            }
+            val before = snapshot.previousValueOf(copy)
+            if (before != null && currency == Currency.USD && !value.isZero) {
+                change += value - before
+                changeBase += before
+            }
         }
 
         /** The currency this collection is mostly worth, and what it comes to. */
@@ -98,7 +148,6 @@ data class CollectionSnapshot(
 
     fun summarize(binder: Binder): ValueSummary {
         val purse = Purse()
-        var basis = Money.ZERO
         var owned = 0
         var wanted = 0
         var toComplete = Money.ZERO
@@ -107,8 +156,7 @@ data class CollectionSnapshot(
             when (slot) {
                 is SlotContent.Filled -> copies[slot.copyId]?.let { copy ->
                     owned++
-                    purse.add(valueOf(copy), currencyOf(copy.variantId))
-                    basis += copy.acquiredPrice ?: Money.ZERO
+                    purse.add(this, copy)
                 }
                 is SlotContent.Wanted -> {
                     wanted++
@@ -119,26 +167,30 @@ data class CollectionSnapshot(
         }
         val (currency, market) = purse.leading
         return ValueSummary(
-            market, basis, owned, wanted, toComplete,
+            market, purse.basis, owned, wanted, toComplete,
             currency, purse.others(), purse.leadingCount,
+            basisMarketValue = purse.basisMarket,
+            dayChange = purse.change,
+            dayChangeBase = purse.changeBase,
         )
     }
 
     /** A container's contribution: real cards, but no pockets and so nothing wanted. */
     fun summarize(container: Container): ValueSummary {
         val purse = Purse()
-        var basis = Money.ZERO
         var owned = 0
         for (copyId in container.copyIds) {
             val copy = copies[copyId] ?: continue
             owned++
-            purse.add(valueOf(copy), currencyOf(copy.variantId))
-            basis += copy.acquiredPrice ?: Money.ZERO
+            purse.add(this, copy)
         }
         val (currency, market) = purse.leading
         return ValueSummary(
             marketValue = market,
-            costBasis = basis,
+            costBasis = purse.basis,
+            basisMarketValue = purse.basisMarket,
+            dayChange = purse.change,
+            dayChangeBase = purse.changeBase,
             ownedCount = owned,
             wantedCount = 0,
             costToComplete = Money.ZERO,
@@ -157,11 +209,7 @@ data class CollectionSnapshot(
      */
     fun summarizeAll(): ValueSummary {
         val purse = Purse()
-        var basis = Money.ZERO
-        for (copy in copies.values) {
-            purse.add(valueOf(copy), currencyOf(copy.variantId))
-            basis += copy.acquiredPrice ?: Money.ZERO
-        }
+        for (copy in copies.values) purse.add(this, copy)
 
         var wanted = 0
         var toComplete = Money.ZERO
@@ -174,8 +222,11 @@ data class CollectionSnapshot(
         }
         val (currency, market) = purse.leading
         return ValueSummary(
-            market, basis, copies.size, wanted, toComplete,
+            market, purse.basis, copies.size, wanted, toComplete,
             currency, purse.others(), purse.leadingCount,
+            basisMarketValue = purse.basisMarket,
+            dayChange = purse.change,
+            dayChangeBase = purse.changeBase,
         )
     }
 

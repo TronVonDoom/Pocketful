@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Pocketful</string>
+    <string name="widget_eyebrow">POCKETFUL</string>
+    <string name="widget_description">Your collection\'s value, today\'s move, and the card that moved most</string>
 </resources>

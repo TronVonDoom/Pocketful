@@ -40,7 +40,7 @@ data class SetPocket(val hit: SearchHit, val finish: Finish)
 object CardImport {
 
     /** Which TCGplayer price key belongs to which finish, best match first. */
-    private fun priceKeys(finish: Finish, firstEdition: Boolean): List<String> = when (finish) {
+    fun priceKeys(finish: Finish, firstEdition: Boolean): List<String> = when (finish) {
         Finish.NON_HOLO -> if (firstEdition) {
             listOf("1stEditionNormal", "1stEdition", "normal")
         } else {

@@ -38,6 +38,12 @@ import app.pocketful.domain.Finish
 import app.pocketful.domain.brief
 import app.pocketful.domain.variantBriefs
 import app.pocketful.data.CatalogSync
+import app.pocketful.ui.components.percentText
+import app.pocketful.ui.components.changeText
+import app.pocketful.data.rememberHomeWidget
+import app.pocketful.data.WidgetSummary
+import app.pocketful.data.nowEpochSeconds
+import app.pocketful.data.PriceHistory
 import app.pocketful.data.RemoteSet
 import app.pocketful.data.rememberDocumentTransfer
 import app.pocketful.data.CatalogDownload
@@ -138,6 +144,8 @@ fun App() {
     // saying when the app last bothered to ask whether a new set exists.
     val catalogDownload = remember(storage) { CatalogDownload(storage) }
     val priceDownload = remember(storage) { PriceDownload(storage) }
+    // Price history is fetched a set at a time as screens ask for it, and kept on disk.
+    val priceHistory = remember(storage) { PriceHistory(storage) }
     val transfer = rememberCollectionTransfer(rememberDocumentTransfer())
     val snapshot = store.snapshot
     val catalog = rememberTcgDex()
@@ -317,6 +325,19 @@ fun App() {
     }
 
     /**
+     * Prices whatever was just imported from the published file, yesterday's figure
+     * included. An import prices from the card document, which carries today's quote only,
+     * so without this a freshly added card could not say which way it had moved until the
+     * next launch.
+     */
+    fun repricePublished() {
+        val prices = catalogSync.priceFromPublished(store.snapshot, nowEpochSeconds())
+        if (prices.isNotEmpty()) {
+            store.applyCatalogSync(CatalogSync.Result(matched = 0, unmatched = 0, prices = prices))
+        }
+    }
+
+    /**
      * Fetches a card found in the catalog and opens the sheet that records owning one.
      *
      * Hoisted here because it is launched from two screens now -- the search tab and a
@@ -331,7 +352,32 @@ fun App() {
             importingCard = false
             if (card != null) {
                 val variantId = store.importRemoteCard(card, Finish.NON_HOLO)
+                repricePublished()
                 addingCard = store.snapshot.brief(variantId)
+            }
+        }
+    }
+
+    /**
+     * Where search adds to, if that place still exists. A box deleted since it was chosen
+     * falls back to unfiled rather than filing cards into nothing.
+     */
+    fun addingTo(): ContainerId? = store.settings.addingTo?.takeIf { store.snapshot.container(it) != null }
+
+    // One tap on a search tile: a near-mint copy of the plainest printing, straight into
+    // wherever search is adding to. The tile's own count going up is the confirmation.
+    val quickAddLocal: (CardBrief) -> Unit = { brief ->
+        store.addCopy(variantId = brief.variantId, container = addingTo())
+    }
+    val quickAddRemote: (SearchHit) -> Unit = { hit ->
+        importingCard = true
+        scope.launch {
+            val card = lookup.fetch(hit).getOrNull()
+            importingCard = false
+            if (card != null) {
+                val variantId = store.importRemoteCard(card, Finish.NON_HOLO)
+                repricePublished()
+                store.addCopy(variantId = variantId, container = addingTo())
             }
         }
     }
@@ -386,6 +432,14 @@ fun App() {
     // done *to* a collection by the app it lives in, and a store that saved itself would
     // need to know what a file was.
     AutosaveEffect(store, saver)
+
+    // The home-screen widget, kept in step with Home's own total. Only once the launch has
+    // restored the collection, so a cold start never tells the widget the portfolio is empty.
+    val homeWidget = rememberHomeWidget()
+    val widgetSummary = remember(snapshot, bootstrap.ready) {
+        if (!bootstrap.ready) null else widgetSummaryOf(snapshot)
+    }
+    LaunchedEffect(widgetSummary) { widgetSummary?.let(homeWidget::publish) }
 
     PocketfulTheme {
         CompositionLocalProvider(LocalAppSettings provides store.settings) {
@@ -539,6 +593,8 @@ fun App() {
                                 onOpenTrade = openTrade,
                                 onOpenCopy = { row -> openCopyId = row.copy.id },
                                 onOpenWant = { row -> revealPocket(row.binderId, row.ordinal) },
+                                history = priceHistory,
+                                onDeleteSale = { id -> store.deleteSale(id) },
                             )
 
                             Destination.Collections -> CollectionsScreen(
@@ -567,6 +623,10 @@ fun App() {
                                 onOpenSet = { openSet = it },
                                 onAddLocalCard = { brief -> addingCard = brief },
                                 onAddRemoteCard = { hit -> importRemoteCard(hit) },
+                                addingTo = addingTo(),
+                                onAddingToChange = { id -> store.updateSettings { it.copy(addingTo = id) } },
+                                onQuickAddLocal = quickAddLocal,
+                                onQuickAddRemote = quickAddRemote,
                             )
 
                             Destination.Settings -> SettingsScreen(
@@ -637,6 +697,13 @@ fun App() {
                 CopySheet(
                     copyId = openCopyId,
                     snapshot = snapshot,
+                    history = priceHistory,
+                    onUpdateMoney = { id, paid, date, value -> store.updateCopyMoney(id, paid, date, value) },
+                    onSetGrade = { id, grade -> store.setGrade(id, grade) },
+                    onMarkSold = { id, price, date ->
+                        store.markSold(id, price, date)
+                        openCopyId = null
+                    },
                     onDismiss = { openCopyId = null },
                     onShowInBinder = revealPocket,
                     onSetForTrade = { copyId, forTrade -> store.setForTrade(copyId, forTrade) },
@@ -652,19 +719,41 @@ fun App() {
                 val addingVariants = remember(addingCard, snapshot.variants) {
                     addingCard?.let { snapshot.variantBriefs(it.variantId) }.orEmpty()
                 }
+                val destination = addingTo()
+                val addingCounts = remember(snapshot.copies, addingVariants, destination) {
+                    addingVariants.associate { it.variantId to store.countIn(it.variantId, destination) }
+                }
                 AddToCollectionSheet(
                     brief = addingCard,
                     variants = addingVariants,
                     containers = snapshot.containers,
-                    onDismiss = { addingCard = null },
-                    onConfirm = { brief, condition, paid, containerId ->
+                    destination = destination,
+                    counts = addingCounts,
+                    history = priceHistory,
+                    onDestinationChange = { id -> store.updateSettings { it.copy(addingTo = id) } },
+                    onStep = { brief, delta ->
+                        if (delta > 0) {
+                            repeat(delta) { store.addCopy(variantId = brief.variantId, container = destination) }
+                        } else {
+                            repeat(-delta) { store.removeOneCopy(brief.variantId, destination) }
+                        }
+                    },
+                    onDismiss = {
+                        addingCard = null
+                        // The stepper can take a card back to none, and its catalog rows are
+                        // left in place while the sheet is open so the plus still works.
+                        store.pruneCatalog()
+                    },
+                    onConfirm = { brief, details ->
                         store.addCopy(
                             variantId = brief.variantId,
-                            condition = condition,
-                            acquiredPrice = paid,
-                            container = containerId,
+                            condition = details.condition,
+                            acquiredPrice = details.paid,
+                            grade = details.grade,
+                            container = destination,
+                            acquiredDate = details.acquiredDate,
+                            valueOverride = details.valueOverride,
                         )
-                        addingCard = null
                     },
                 )
 
@@ -784,4 +873,42 @@ fun App() {
             }
         }
     }
+}
+
+/**
+ * Home's headline, worded for the widget: the total, the day's move, how many cards, and
+ * the card that moved most. The mover is picked among cards worth a dollar or more, where a
+ * percentage means something -- a bulk common going from four cents to five is +25%.
+ */
+private fun widgetSummaryOf(snapshot: app.pocketful.domain.CollectionSnapshot): WidgetSummary {
+    val total = snapshot.summarizeAll()
+    val count = snapshot.copies.size
+    val mover = snapshot.copies.values
+        .asSequence()
+        .map { it.variantId }
+        .distinct()
+        .mapNotNull { id ->
+            val change = snapshot.changeOf(id) ?: return@mapNotNull null
+            val market = snapshot.marketValue(id)
+            val before = market - change
+            if (market.cents < 100 || before.isZero) null
+            else Triple(id, change, change.cents.toDouble() / before.cents * 100)
+        }
+        .maxByOrNull { kotlin.math.abs(it.third) }
+        ?.takeIf { kotlin.math.abs(it.third) >= 1.0 }
+        ?.let { (id, change, percent) ->
+            val name = snapshot.brief(id)?.name ?: return@let null
+            name + " " + (if (change.cents > 0) "▲" else "▼") + percentText(percent)
+        }
+    return WidgetSummary(
+        value = if (total.marketValue.isZero) "—" else total.marketValue.format(currency = total.currency),
+        change = total.dayChangeBase.takeIf { it.cents > 0 }?.let {
+            changeText(total.dayChange, it, total.currency) + " today"
+        },
+        changeUp = total.dayChangeBase.takeIf { it.cents > 0 }?.let {
+            if (total.dayChange.cents == 0L) null else total.dayChange.cents > 0
+        },
+        caption = if (count == 1) "1 card" else "$count cards",
+        mover = mover,
+    )
 }

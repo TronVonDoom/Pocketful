@@ -42,6 +42,21 @@
         </activity>
 
         <!--
+            The portfolio widget. Not exported beyond the launcher's update broadcast; the
+            app pushes figures into it directly (PortfolioWidget.publish).
+        -->
+        <receiver
+            android:name=".widget.PortfolioWidget"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_portfolio_info" />
+        </receiver>
+
+        <!--
             How a downloaded APK reaches the installer. Handing out a file:// URI has been
             an exception since Android 7, so the file is served from the app's own cache
             through a content:// URI with a one-shot read grant attached to the intent.

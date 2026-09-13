@@ -1,5 +1,17 @@
 package app.pocketful.ui.home
 
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import app.pocketful.data.CardImport
+import app.pocketful.data.PriceHistory
+import app.pocketful.data.PriceHistoryDoc
+import app.pocketful.data.portfolioSeries
+import app.pocketful.ui.components.ChangeLabel
+import app.pocketful.ui.components.CircleIconButton
+import app.pocketful.ui.components.PriceHistoryPanel
+import app.pocketful.ui.components.trendChip
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -92,9 +104,29 @@ fun HomeScreen(
     onOpenTrade: () -> Unit,
     onOpenCopy: (CopyRow) -> Unit,
     onOpenWant: (WantRow) -> Unit,
+    history: PriceHistory,
+    onDeleteSale: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val total = remember(snapshot) { snapshot.summarizeAll() }
+
+    // The portfolio chart: the history of every set the collection spans, fetched once and
+    // kept, then re-summed whenever the collection changes. Fetching is keyed on the sets
+    // rather than the snapshot, so adding a card from a set already loaded costs no request.
+    val setIds = remember(snapshot.copies, snapshot.variants) {
+        snapshot.copies.values.mapNotNull { copy ->
+            CardImport.decompose(copy.variantId)?.remoteId?.let(PriceHistory::setOf)
+        }.toSortedSet()
+    }
+    var historyDocs by remember { mutableStateOf<Map<String, PriceHistoryDoc>?>(null) }
+    LaunchedEffect(setIds) {
+        historyDocs = if (setIds.isEmpty()) emptyMap() else history.forSets(setIds)
+    }
+    val portfolioPoints = remember(historyDocs, snapshot) {
+        historyDocs?.let { portfolioSeries(snapshot, it) }
+    }
+    val realized = remember(snapshot.sales) { snapshot.realizedGains() }
+    val graded = remember(snapshot.copies) { snapshot.copies.values.count { it.isGraded } }
     val unfiled = remember(snapshot) { snapshot.unfiledCopies().size }
     val copies = remember(snapshot) { snapshot.copyRows() }
     // Carried with their positions rather than looked up later. Ranking by index-of
@@ -205,6 +237,16 @@ fun HomeScreen(
                             }
                         }
                         if (unfiled > 0) add(Stat("$unfiled", "unfiled", Ink.Gold))
+                        if (graded > 0) add(Stat("$graded", "graded"))
+                        if (snapshot.sales.isNotEmpty()) {
+                            add(
+                                Stat(
+                                    (if (realized.cents >= 0) "+" else "") + realized.display(),
+                                    "realized",
+                                    if (realized.cents >= 0) Ink.Gain else Ink.Loss,
+                                ),
+                            )
+                        }
                     },
                     actions = {
                         // Icon-only, because these two are the app's own furniture --
@@ -221,6 +263,30 @@ fun HomeScreen(
                         )
                     },
                 )
+            }
+
+            if (copies.isNotEmpty()) {
+                item {
+                    Panel {
+                        if (total.dayChangeBase.cents > 0) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "Today",
+                                    color = Ink.TextTertiary,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                ChangeLabel(change = total.dayChange, base = total.dayChangeBase, currency = total.currency)
+                            }
+                            Spacer(Modifier.height(12.dp))
+                        }
+                        PriceHistoryPanel(
+                            points = portfolioPoints,
+                            title = "Portfolio value",
+                            currency = total.currency,
+                        )
+                    }
+                }
             }
 
             if (places.isEmpty()) {
@@ -335,12 +401,67 @@ fun HomeScreen(
                         caption = row.locationLabel,
                         value = row.value.display(),
                         valueColor = Ink.Gold,
+                        trend = trendChip(row.brief.change, row.brief.marketValue),
                         rank = position,
                         badge = row.copy.grade?.label,
                         badgeColor = Ink.Gold,
                         onClick = { onOpenCopy(row) },
                         modifier = Modifier.weight(1f),
                     )
+                }
+            }
+
+            if (snapshot.sales.isNotEmpty()) {
+                item {
+                    SectionHeader("Sold", Modifier.padding(top = 10.dp, bottom = 2.dp)) {
+                        Text(
+                            text = (if (realized.cents >= 0) "+" else "") + realized.display() + " realized",
+                            color = if (realized.cents >= 0) Ink.Gain else Ink.Loss,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                }
+                item {
+                    Panel {
+                        snapshot.sales.take(SOLD_SHOWN).forEachIndexed { index, sale ->
+                            if (index > 0) Spacer(Modifier.height(12.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        text = sale.name + (sale.badge?.let { " · $it" } ?: ""),
+                                        color = Ink.TextPrimary,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        text = listOfNotNull(sale.setName.takeIf { it.isNotBlank() }, sale.soldDate).joinToString(" · "),
+                                        color = Ink.TextTertiary,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 1,
+                                    )
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(sale.soldPrice.display(), color = Ink.TextSecondary, style = MaterialTheme.typography.titleSmall)
+                                    sale.realizedGain?.let { gain ->
+                                        Text(
+                                            text = (if (gain.cents >= 0) "+" else "") + gain.display(),
+                                            color = if (gain.cents >= 0) Ink.Gain else Ink.Loss,
+                                            style = MaterialTheme.typography.labelSmall,
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.width(6.dp))
+                                CircleIconButton(
+                                    icon = AppIcons.Close,
+                                    contentDescription = "Forget this sale",
+                                    onClick = { onDeleteSale(sale.id) },
+                                    size = 28.dp,
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -422,6 +543,9 @@ private fun LinkText(label: String, onClick: () -> Unit) {
  * the screen does not spend a second building tiles nobody will swipe to.
  */
 private const val TRADE_SHELF_MAX = 12
+
+/** How many sales Home lists. The rest are still counted in the realized total. */
+private const val SOLD_SHOWN = 5
 
 private data class SetTally(val setName: String, val count: Int, val value: Money)
 

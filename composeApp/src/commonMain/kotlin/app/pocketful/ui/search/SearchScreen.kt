@@ -1,5 +1,14 @@
 package app.pocketful.ui.search
 
+import app.pocketful.domain.Container
+import app.pocketful.domain.ContainerId
+import app.pocketful.ui.components.ChoiceChip
+import app.pocketful.ui.components.trendChip
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -98,6 +107,12 @@ fun SearchScreen(
     onAddRemoteCard: (SearchHit) -> Unit,
     onAddLocalCard: (CardBrief) -> Unit,
     importing: Boolean,
+    /** Where a card added from here goes: a container, or null for unfiled. */
+    addingTo: ContainerId?,
+    onAddingToChange: (ContainerId?) -> Unit,
+    /** One tap, one copy, straight into [addingTo]. */
+    onQuickAddLocal: (CardBrief) -> Unit,
+    onQuickAddRemote: (SearchHit) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var query by remember { mutableStateOf("") }
@@ -210,6 +225,14 @@ fun SearchScreen(
                             placeholder = game?.let { "Search ${it.wordmark}" }
                                 ?: "Search every card in the catalog",
                         )
+                        if (searching) {
+                            Spacer(Modifier.height(10.dp))
+                            AddingToRow(
+                                containers = snapshot.containers,
+                                selected = addingTo,
+                                onSelect = onAddingToChange,
+                            )
+                        }
                     },
                 )
             }
@@ -227,6 +250,8 @@ fun SearchScreen(
                         importing = importing,
                         onAddLocalCard = onAddLocalCard,
                         onAddRemoteCard = onAddRemoteCard,
+                        onQuickAddLocal = onQuickAddLocal,
+                        onQuickAddRemote = onQuickAddRemote,
                     )
                 }
 
@@ -405,6 +430,8 @@ private fun LazyListScope.cardResults(
     importing: Boolean,
     onAddLocalCard: (CardBrief) -> Unit,
     onAddRemoteCard: (SearchHit) -> Unit,
+    onQuickAddLocal: (CardBrief) -> Unit,
+    onQuickAddRemote: (SearchHit) -> Unit,
 ) {
     if (importing) item { Notice("Fetching card details…") }
 
@@ -421,6 +448,8 @@ private fun LazyListScope.cardResults(
                 count = owned,
                 badge = if (owned > 0) "OWN" else null,
                 badgeColor = Ink.Gain,
+                trend = trendChip(brief.change, brief.marketValue),
+                onQuickAdd = { onQuickAddLocal(brief) },
                 onClick = { onAddLocalCard(brief) },
                 modifier = Modifier.weight(1f),
             )
@@ -472,6 +501,7 @@ private fun LazyListScope.cardResults(
                 hit = hit,
                 caption = "${hit.setName} · ${hit.collectorNumber}",
                 enabled = !importing,
+                onQuickAdd = { onQuickAddRemote(hit) },
                 onClick = { onAddRemoteCard(hit) },
                 modifier = Modifier.weight(1f),
             )
@@ -497,6 +527,35 @@ private fun List<RemoteSet>.matching(query: String): List<RemoteSet> {
         )
         .take(6)
         .toList()
+}
+
+/**
+ * "Adding to: Unfiled · Bulk box · Slabs" -- the place every quick add from search lands.
+ *
+ * Shown only while searching, which is the only time it applies, and remembered across
+ * launches, because sorting a stack of cards into one box is thirty adds to the same place.
+ */
+@Composable
+private fun AddingToRow(
+    containers: List<Container>,
+    selected: ContainerId?,
+    onSelect: (ContainerId?) -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Adding to", color = Ink.TextTertiary, style = MaterialTheme.typography.labelMedium)
+        ChoiceChip(label = "Unfiled", selected = selected == null, onClick = { onSelect(null) })
+        containers.forEach { container ->
+            ChoiceChip(
+                label = container.name,
+                selected = selected == container.id,
+                onClick = { onSelect(container.id) },
+            )
+        }
+    }
 }
 
 /** A line of explanation between result sections. Not an error unless it says so. */

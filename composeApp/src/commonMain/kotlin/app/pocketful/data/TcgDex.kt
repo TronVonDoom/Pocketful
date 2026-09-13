@@ -97,6 +97,15 @@ class TcgDex(
     fun publishedSpecialPrice(cardId: String, priceKey: String, finishKeys: List<String>): Long? =
         prices?.centsForSpecial(cardId, priceKey, finishKeys)
 
+    /** A card's figure on the price file's previous day, and which day that was. */
+    fun publishedPreviousPrice(cardId: String, finishKeys: List<String>): Long? =
+        prices?.previousCentsFor(cardId, finishKeys)
+
+    fun publishedPreviousSpecialPrice(cardId: String, priceKey: String, finishKeys: List<String>): Long? =
+        prices?.previousCentsForSpecial(cardId, priceKey, finishKeys)
+
+    val publishedPreviousDate: String? get() = prices?.previous?.date
+
     /**
      * The published record for one card, if the catalog is here and knows it.
      *

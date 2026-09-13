@@ -27,8 +27,44 @@ data class Copy(
      * the whole point is that the spare is tradeable while the one in the binder is not.
      */
     val forTrade: Boolean = false,
+    /**
+     * What you say this copy is worth, in place of the market figure.
+     *
+     * For the copies no market quotes: a graded slab (TCGplayer prices raw cards only, so a
+     * PSA 10 would otherwise count at its raw price), a card with no TCGplayer product at
+     * all, or one you simply know sold for more. Every total uses it when it is set.
+     */
+    val valueOverride: Money? = null,
 ) {
     val isGraded: Boolean get() = grade != null
+}
+
+/**
+ * A copy that has left the collection by being sold.
+ *
+ * Kept as a record of its own rather than a flag on the copy, because a sold card is no
+ * longer in any binder, box or total -- and every screen that lists what you own would
+ * otherwise have to remember to skip it. What it was is written down in full ([name],
+ * [setName], [number]) so the sale still reads correctly after the catalog rows it pointed
+ * at are pruned with the copy.
+ */
+@Serializable
+data class Sale(
+    val id: String,
+    val variantId: VariantId,
+    val name: String,
+    val setName: String,
+    val number: String,
+    val badge: String? = null,
+    val soldPrice: Money,
+    val soldDate: String? = null,
+    val acquiredPrice: Money? = null,
+    val acquiredDate: String? = null,
+    val condition: Condition = Condition.NEAR_MINT,
+    val grade: Grade? = null,
+) {
+    /** What the sale made over what was paid, or null when nothing was paid on record. */
+    val realizedGain: Money? get() = acquiredPrice?.let { soldPrice - it }
 }
 
 enum class Condition(val label: String, val short: String, val multiplier: Double) {
@@ -95,4 +131,11 @@ data class PriceSnapshot(
      */
     val currency: Currency = Currency.USD,
     val fetchedAtEpochSeconds: Long,
+    /**
+     * The market figure on the last day before this one that the price file recorded, so a
+     * price can say which way it moved. Null when there is no earlier figure to compare to.
+     */
+    val previous: Money? = null,
+    /** The day [previous] was quoted, `yyyy-MM-dd`. */
+    val previousDate: String? = null,
 )

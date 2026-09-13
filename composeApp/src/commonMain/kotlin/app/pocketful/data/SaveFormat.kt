@@ -8,6 +8,7 @@ import app.pocketful.domain.Container
 import app.pocketful.domain.Copy
 import app.pocketful.domain.PriceSnapshot
 import app.pocketful.domain.Printing
+import app.pocketful.domain.Sale
 import app.pocketful.domain.SlotContent
 import app.pocketful.domain.Variant
 import kotlinx.serialization.EncodeDefault
@@ -57,6 +58,8 @@ data class CollectionSave(
     val binders: List<Binder> = emptyList(),
     val containers: List<Container> = emptyList(),
     val settings: SavedSettings = SavedSettings(),
+    /** Cards sold out of the collection, with what they fetched. See [Sale]. */
+    val sales: List<Sale> = emptyList(),
 )
 
 /**
@@ -75,6 +78,8 @@ data class SavedSettings(
     val abbreviateValues: Boolean = true,
     val defaultLayout: BinderLayout = BinderLayout.POCKET_9,
     val defaultSheetCount: Int = 10,
+    /** The container search adds to, by id; null for unfiled. */
+    val addingTo: String? = null,
 )
 
 /**
@@ -126,6 +131,7 @@ fun CollectionSnapshot.toSave(settings: SavedSettings): CollectionSave = Collect
     binders = binders.map { it.copy(slots = it.slots.trimmedForSave()) },
     containers = containers,
     settings = settings,
+    sales = sales,
 )
 
 /**
@@ -244,4 +250,5 @@ fun buildSnapshot(save: CollectionSave, cache: CatalogCache?): CollectionSnapsho
         copies = save.copies.associateBy { it.id },
         binders = save.binders,
         containers = save.containers,
+        sales = save.sales,
     )

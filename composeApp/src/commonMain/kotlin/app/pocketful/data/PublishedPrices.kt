@@ -55,6 +55,12 @@ data class PublishedPrices(
      * card's, by this build or by one from before stamps existed.
      */
     val special: Map<String, Map<String, Map<String, Long>>> = emptyMap(),
+    /**
+     * Every figure from the last day the price job recorded before this one, in the same
+     * shape as [cards] and [special]. What a price tag measures its daily move against,
+     * without the app downloading any history.
+     */
+    val previous: PreviousPrices? = null,
 ) {
     val isUsable: Boolean get() = cards.isNotEmpty() && schema == SCHEMA
 
@@ -66,6 +72,17 @@ data class PublishedPrices(
      */
     fun centsForSpecial(cardId: String, priceKey: String, finishKeys: List<String>): Long? {
         val quotes = special[cardId]?.get(priceKey) ?: return null
+        return finishKeys.firstNotNullOfOrNull { quotes[it] } ?: quotes.values.firstOrNull()
+    }
+
+    /** The same card's figure on the previous day, chosen by the same keys. */
+    fun previousCentsFor(cardId: String, finishKeys: List<String>): Long? {
+        val quotes = previous?.cards?.get(cardId) ?: return null
+        return finishKeys.firstNotNullOfOrNull { quotes[it] } ?: quotes.values.firstOrNull()
+    }
+
+    fun previousCentsForSpecial(cardId: String, priceKey: String, finishKeys: List<String>): Long? {
+        val quotes = previous?.special?.get(cardId)?.get(priceKey) ?: return null
         return finishKeys.firstNotNullOfOrNull { quotes[it] } ?: quotes.values.firstOrNull()
     }
 
@@ -94,6 +111,14 @@ data class PublishedPrices(
                 ?.takeIf { it.isUsable }
     }
 }
+
+/** One earlier day of the price file. See [PublishedPrices.previous]. */
+@Serializable
+data class PreviousPrices(
+    val date: String? = null,
+    val cards: Map<String, Map<String, Long>> = emptyMap(),
+    val special: Map<String, Map<String, Map<String, Long>>> = emptyMap(),
+)
 
 /**
  * Getting that file onto the device and keeping it current.

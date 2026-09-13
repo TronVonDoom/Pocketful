@@ -95,6 +95,13 @@ fun CardArtTile(
     selected: Boolean = false,
     enabled: Boolean = true,
     onLongClick: (() -> Unit)? = null,
+    /** The price's daily move, as [trendChip] writes it: "▲3%". Drawn above the price. */
+    trend: String? = null,
+    /**
+     * Adds one of this card straight to wherever search is adding to, without opening
+     * anything. Drawn as a plus in the bottom-left corner of the art when set.
+     */
+    onQuickAdd: (() -> Unit)? = null,
 ) {
     val outline by animateColorAsState(
         targetValue = if (selected) Ink.Accent else Ink.OutlineFaint,
@@ -183,13 +190,41 @@ fun CardArtTile(
                     )
                 }
 
-                value?.let {
-                    ArtChip(
-                        text = it,
-                        foreground = valueColor,
-                        background = Color.Black.copy(alpha = 0.74f),
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp),
-                    )
+                Column(
+                    Modifier.align(Alignment.BottomEnd).padding(5.dp),
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    trend?.let {
+                        ArtChip(
+                            text = it,
+                            foreground = if (it.startsWith("▲")) Ink.Gain else Ink.Loss,
+                            background = Color.Black.copy(alpha = 0.74f),
+                        )
+                    }
+                    value?.let {
+                        ArtChip(
+                            text = it,
+                            foreground = valueColor,
+                            background = Color.Black.copy(alpha = 0.74f),
+                        )
+                    }
+                }
+
+                if (onQuickAdd != null && !selected) {
+                    Box(
+                        Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(5.dp)
+                            .size(28.dp)
+                            .clip(AppShape.Pill)
+                            .background(Ink.Accent)
+                            .border(1.dp, Color.White.copy(alpha = 0.35f), AppShape.Pill)
+                            .tappable(enabled = enabled, pressScale = 0.85f, onClick = onQuickAdd),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(AppIcons.Plus, "Add one", Modifier.size(14.dp), tint = Color.White)
+                    }
                 }
 
                 Box(
@@ -235,6 +270,8 @@ fun CardTile(
     ghosted: Boolean = false,
     selected: Boolean = false,
     onLongClick: (() -> Unit)? = null,
+    trend: String? = null,
+    onQuickAdd: (() -> Unit)? = null,
 ) {
     CardArtTile(
         name = brief.name,
@@ -252,6 +289,8 @@ fun CardTile(
         holo = brief.finish != Finish.NON_HOLO,
         selected = selected,
         onLongClick = onLongClick,
+        trend = trend,
+        onQuickAdd = onQuickAdd,
         onClick = onClick,
         modifier = modifier,
     )
@@ -271,6 +310,7 @@ fun CatalogCardTile(
     valueColor: Color = Ink.Gold,
     ghosted: Boolean = false,
     enabled: Boolean = true,
+    onQuickAdd: (() -> Unit)? = null,
 ) {
     CardArtTile(
         name = hit.name,
@@ -284,6 +324,7 @@ fun CatalogCardTile(
         count = count,
         ghosted = ghosted,
         enabled = enabled,
+        onQuickAdd = onQuickAdd,
         onClick = onClick,
         modifier = modifier,
     )

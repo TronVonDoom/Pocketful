@@ -47,7 +47,11 @@ class CatalogDownload(
 
         if (onDisk != null) {
             val age = nowSeconds - (readStampSeconds() ?: 0L)
-            if (age in 0 until REFRESH_AFTER_SECONDS) {
+            // A catalog built before this build's newest field is asked about now rather
+            // than in up to six days: it is still correct, but it is missing something the
+            // app would show -- the special printings, when this was written.
+            val outdated = (onDisk.generatedAt ?: "") < MINIMUM_GENERATED_AT
+            if (age in 0 until REFRESH_AFTER_SECONDS && !outdated) {
                 outcome = Outcome.FromDisk
                 return onDisk
             }
@@ -136,6 +140,15 @@ class CatalogDownload(
          * often one install pings GitHub for a file that usually has not changed.
          */
         const val REFRESH_AFTER_SECONDS: Long = 6 * 24 * 60 * 60
+
+        /**
+         * The oldest catalog this build is satisfied with, by its `generatedAt`.
+         *
+         * Raised when the app starts reading something the catalog did not always carry,
+         * so installs pick it up at their next launch instead of at their next scheduled
+         * refresh. ISO timestamps compare correctly as text.
+         */
+        const val MINIMUM_GENERATED_AT: String = "2026-09-13T01:00:00Z"
 
         fun defaultClient(): HttpClient = HttpClient {
             install(UserAgent) { agent = TcgDex.USER_AGENT }

@@ -173,6 +173,9 @@ class AppBootstrap {
                 val recovered = catalogSync.recoverOrphans(store.snapshot)
                 store.applyRecovery(recovered)
                 rebuilt = recovered.count
+                // The stamped and pattern printings of cards filed before the catalog
+                // listed them. Ahead of pricing below, so they arrive priced.
+                store.applyRecovery(CatalogSync.Recovered(variants = catalogSync.missingSpecialVariants(store.snapshot)))
             }
 
             step(ARTWORK_FILL, 0.27f, 0.30f) {
@@ -245,7 +248,13 @@ class AppBootstrap {
                     printings = artPrintings + it.printings,
                     // Published first so a live quote overwrites it. They rarely differ --
                     // both are TCGplayer -- and where they do, the fetched one is today's.
-                    prices = publishedPrices + it.prices,
+                    // A live quote carries no yesterday, so it keeps the published one's:
+                    // the move a price tag shows should survive the price being refreshed.
+                    prices = publishedPrices + it.prices.mapValues { (id, live) ->
+                        publishedPrices[id]?.let { published ->
+                            live.copy(previous = published.previous, previousDate = published.previousDate)
+                        } ?: live
+                    },
                 )
             }
         }
