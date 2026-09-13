@@ -547,6 +547,37 @@ class CollectionStore(initial: CollectionSnapshot = CollectionSnapshot()) {
         )
     }
 
+    /**
+     * Everything about one copy at once, as the card menu's Edit form saves it: which
+     * variation it is, its condition, cost, grade, value and notes. The copy stays where it
+     * is filed. A variation the catalog does not have is ignored rather than written.
+     */
+    fun editCopy(
+        copyId: CopyId,
+        variantId: VariantId,
+        condition: Condition,
+        acquiredPrice: Money?,
+        acquiredDate: String?,
+        grade: Grade?,
+        valueOverride: Money?,
+        notes: String?,
+    ) {
+        val existing = snapshot.copies[copyId] ?: return
+        snapshot = snapshot.copy(
+            copies = snapshot.copies + (
+                copyId to existing.copy(
+                    variantId = variantId.takeIf { it in snapshot.variants } ?: existing.variantId,
+                    condition = condition,
+                    acquiredPrice = acquiredPrice,
+                    acquiredDate = acquiredDate?.trim()?.takeIf { it.isNotEmpty() },
+                    grade = grade,
+                    valueOverride = valueOverride,
+                    notes = notes?.trim()?.takeIf { it.isNotBlank() },
+                )
+                ),
+        )
+    }
+
     /** Grades a copy, or takes the grade back off it. */
     fun setGrade(copyId: CopyId, grade: Grade?) {
         val existing = snapshot.copies[copyId] ?: return

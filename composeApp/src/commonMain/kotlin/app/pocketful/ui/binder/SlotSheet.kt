@@ -1,5 +1,7 @@
 package app.pocketful.ui.binder
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -8,9 +10,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,46 +26,55 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import app.pocketful.domain.Currency
+import app.pocketful.data.CardImport
+import app.pocketful.data.PriceHistory
+import app.pocketful.data.RemoteSet
+import app.pocketful.data.SearchHit
+import app.pocketful.data.TcgDex
 import app.pocketful.domain.Binder
-import app.pocketful.domain.BinderId
 import app.pocketful.domain.CardBrief
 import app.pocketful.domain.CollectionSnapshot
-import app.pocketful.domain.Condition
 import app.pocketful.domain.Copy
 import app.pocketful.domain.CopyId
 import app.pocketful.domain.Edition
 import app.pocketful.domain.Finish
-import app.pocketful.domain.Grade
-import app.pocketful.domain.GradingCompany
 import app.pocketful.domain.Location
 import app.pocketful.domain.Money
 import app.pocketful.domain.PokemonType
+import app.pocketful.domain.PrintingId
 import app.pocketful.domain.SlotContent
 import app.pocketful.domain.Supertype
+import app.pocketful.domain.TcgGame
 import app.pocketful.domain.allBriefs
 import app.pocketful.domain.brief
 import app.pocketful.domain.byPrinting
-import app.pocketful.domain.variantBriefs
 import app.pocketful.domain.search
-import app.pocketful.data.SearchHit
-import app.pocketful.data.TcgDex
-import app.pocketful.state.displayOrDash
+import app.pocketful.domain.variantBriefs
 import app.pocketful.state.CardLookup
+import app.pocketful.state.CatalogBrowser
 import app.pocketful.state.CollectionStore
 import app.pocketful.state.display
+import app.pocketful.state.displayOrDash
 import app.pocketful.state.filterPriceInput
+import app.pocketful.state.rememberCardLookup
 import app.pocketful.state.toMoneyOrNull
 import app.pocketful.state.toPriceInput
-import app.pocketful.state.rememberCardLookup
+import app.pocketful.ui.card.CardPlace
+import app.pocketful.ui.card.CopyFormFields
+import app.pocketful.ui.card.OwnedCardContent
+import app.pocketful.ui.card.VariantHistory
+import app.pocketful.ui.card.VariationMark
+import app.pocketful.ui.card.VariationsSection
+import app.pocketful.ui.card.rememberCopyForm
 import app.pocketful.ui.components.AppButton
 import app.pocketful.ui.components.AppOutlineButton
 import app.pocketful.ui.components.AppSheet
 import app.pocketful.ui.components.AppTextField
-import app.pocketful.ui.components.ButtonTone
 import app.pocketful.ui.components.CardHero
 import app.pocketful.ui.components.CardListRow
 import app.pocketful.ui.components.CatalogCardRow
@@ -75,17 +88,16 @@ import app.pocketful.ui.components.SegmentedControl
 import app.pocketful.ui.components.SheetActions
 import app.pocketful.ui.components.SheetBody
 import app.pocketful.ui.components.SheetHeader
-import app.pocketful.ui.components.ToggleSwitch
-import app.pocketful.ui.components.TradeToggleRow
 import app.pocketful.ui.components.ValueTrailing
-import app.pocketful.ui.components.VariantPicker
+import app.pocketful.ui.components.tappable
 import app.pocketful.ui.theme.AppIcons
+import app.pocketful.ui.theme.AppShape
 import app.pocketful.ui.theme.Ink
 import app.pocketful.ui.theme.label
 import kotlinx.coroutines.launch
 
 /** Which pocket the sheet is acting on. */
-data class SlotTarget(val binderId: BinderId, val ordinal: Int)
+data class SlotTarget(val binderId: app.pocketful.domain.BinderId, val ordinal: Int)
 
 private sealed interface Step {
     /** What is already in the pocket. */
@@ -97,9 +109,6 @@ private sealed interface Step {
     /** Record the physical details of a card being added. */
     data class Acquire(val brief: CardBrief) : Step
 
-    /** Change the details of a copy already in the pocket. */
-    data class EditCopy(val copyId: CopyId) : Step
-
     /** Add a card the bundled catalog does not have. */
     data object CreateCard : Step
 }
@@ -109,39 +118,41 @@ private enum class Intent(val label: String, val accent: Color) {
     Want("I want it", Ink.Wanted),
 }
 
+/** How the picker finds a card: by typing, or by walking the catalog game, era and set. */
+private enum class Finder(val label: String) { Search("Search"), Browse("Browse sets") }
+
 /**
- * How wide a search casts.
- *
- * One meaning in both intents: [Mine] keeps only cards the collection already has a copy
- * of, [All] adds everything the catalogs know about. Defaulting to [All] because the
- * commonest reason to type into this box is a card you have just pulled and the app has
- * never heard of -- a picker that answered that with silence until you found a filter
- * would be a search box that hides the thing you are searching for.
+ * How wide a search casts. [Mine] keeps only cards the collection already has a copy of,
+ * [All] adds everything the catalogs know about.
  */
 private enum class Scope(val label: String) { All("All cards"), Mine("My collection") }
+
+/** How many unfiled cards the picker lists before it asks to show the rest. */
+private const val UNFILED_PREVIEW = 6
 
 /**
  * Everything that happens to one pocket.
  *
- * A pocket has more states than a list row does -- empty, owned, wanted, deliberately
- * blank -- and each one leads somewhere different. Rather than four separate sheets that
- * each get one third of the shared behaviour, this is one sheet with an explicit [Step],
- * so "I got the card I was hunting" is a step transition instead of a dismissal followed
- * by the user finding the pocket again.
+ * What is *in* the pocket uses the same card menu as everywhere else in the app -- an owned
+ * card is [OwnedCardContent], with the pocket adding "take out" and "swap"; a wanted card
+ * is the same layout with the hunt's actions. What is particular to a pocket is getting a
+ * card into it, which is [Step.Browse]: by search, or by browsing the catalog game by game
+ * and set by set, so a pocket can be filled without wading through every loose card.
  */
 @Composable
 fun SlotSheet(
     target: SlotTarget?,
     store: CollectionStore,
     catalog: TcgDex,
+    browser: CatalogBrowser,
+    history: PriceHistory,
     onDismiss: () -> Unit,
 ) {
     // Latched so the sheet still has something to draw while it animates out.
     var latched by remember { mutableStateOf<SlotTarget?>(null) }
     var step by remember { mutableStateOf<Step>(Step.Browse) }
 
-    // Its own query state, but the app's one API client: two search boxes are correct,
-    // two copies of the 218-set index are not.
+    // Its own query state, but the app's one API client.
     val lookup = rememberCardLookup(catalog)
     var importing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -164,47 +175,135 @@ fun SlotSheet(
         if (active == null || binder == null) return@AppSheet
         val ordinal = active.ordinal
         val slot = binder.paddedSlots.getOrNull(ordinal) ?: SlotContent.Empty
+        val where = "Pocket ${ordinal + 1} · ${pocketLocationLabel(binder, ordinal)}"
 
         when (val current = step) {
-            Step.Detail -> SlotDetailStep(
-                binder = binder,
-                ordinal = ordinal,
-                slot = slot,
-                snapshot = snapshot,
-                onClose = onDismiss,
-                onSetForTrade = { copyId, forTrade -> store.setForTrade(copyId, forTrade) },
-                // Re-aims the want at another press run of the same card, keeping whatever
-                // price it was being hunted at. A set binder is filled with wants before
-                // anyone has decided which finish they are chasing, and "the reverse, not
-                // the plain one" should not mean clearing the pocket and starting over.
-                onChangeWanted = { chosen ->
-                    val want = slot as? SlotContent.Wanted
-                    store.markWanted(binder.id, ordinal, chosen.variantId, want?.targetPrice)
-                },
-                onReplace = { step = Step.Browse },
-                onEditCopy = { step = Step.EditCopy(it) },
-                onAcquireWanted = { step = Step.Acquire(it) },
-                onClear = {
-                    store.clearSlot(binder.id, ordinal)
-                    onDismiss()
-                },
-                onDeleteCopy = { copyId ->
-                    store.deleteCopy(copyId)
-                    onDismiss()
-                },
-            )
+            Step.Detail -> when (slot) {
+                is SlotContent.Filled -> {
+                    val copy = snapshot.copies[slot.copyId]
+                    if (copy == null || snapshot.brief(copy.variantId) == null) {
+                        MissingRecord(
+                            message = "This pocket points at a card that is no longer in your collection.",
+                            actionLabel = "Empty the pocket",
+                            onAction = {
+                                store.clearSlot(binder.id, ordinal)
+                                onDismiss()
+                            },
+                            onClose = onDismiss,
+                        )
+                    } else {
+                        OwnedCardContent(
+                            snapshot = snapshot,
+                            copy = copy,
+                            history = history,
+                            place = CardPlace(
+                                where = where,
+                                onTakeOut = {
+                                    store.clearSlot(binder.id, ordinal)
+                                    onDismiss()
+                                },
+                                onSwap = { step = Step.Browse },
+                            ),
+                            onClose = onDismiss,
+                            onSetForTrade = { store.setForTrade(copy.id, it) },
+                            onSave = { details ->
+                                store.editCopy(
+                                    copyId = copy.id,
+                                    variantId = details.variantId,
+                                    condition = details.condition,
+                                    acquiredPrice = details.paid,
+                                    acquiredDate = details.acquiredDate,
+                                    grade = details.grade,
+                                    valueOverride = details.valueOverride,
+                                    notes = details.notes,
+                                )
+                            },
+                            onSell = { price, date ->
+                                store.markSold(copy.id, price, date)
+                                onDismiss()
+                            },
+                            onDelete = {
+                                store.deleteCopy(copy.id)
+                                onDismiss()
+                            },
+                        )
+                    }
+                }
+
+                is SlotContent.Wanted -> {
+                    val brief = snapshot.brief(slot.variantId)
+                    if (brief == null) {
+                        MissingRecord(
+                            message = "This want points at a card that is no longer in the catalog.",
+                            actionLabel = "Empty the pocket",
+                            onAction = {
+                                store.clearSlot(binder.id, ordinal)
+                                onDismiss()
+                            },
+                            onClose = onDismiss,
+                        )
+                    } else {
+                        WantedCardContent(
+                            snapshot = snapshot,
+                            brief = brief,
+                            targetPrice = slot.targetPrice,
+                            where = where,
+                            history = history,
+                            onClose = onDismiss,
+                            // Re-aims the want at another press run of the same card, keeping
+                            // whatever price it was being hunted at.
+                            onChangeWanted = { chosen -> store.markWanted(binder.id, ordinal, chosen.variantId, slot.targetPrice) },
+                            onSetTarget = { price -> store.markWanted(binder.id, ordinal, slot.variantId, price) },
+                            onGotIt = { step = Step.Acquire(brief) },
+                            onPlaceUnfiled = { copyId ->
+                                store.placeCopy(binder.id, ordinal, copyId)
+                                onDismiss()
+                            },
+                            onSwap = { step = Step.Browse },
+                            onClear = {
+                                store.clearSlot(binder.id, ordinal)
+                                onDismiss()
+                            },
+                        )
+                    }
+                }
+
+                is SlotContent.Spacer -> {
+                    SheetHeader(title = "Pocket ${ordinal + 1}", subtitle = pocketLocationLabel(binder, ordinal), onClose = onDismiss)
+                    SheetBody(scrollable = false) {
+                        Text(
+                            text = slot.label?.let { "Deliberately blank, labelled \"$it\"." }
+                                ?: "This pocket is deliberately blank. Reflowing the binder moves it but never fills it.",
+                            color = Ink.TextSecondary,
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    }
+                    SheetActions {
+                        AppOutlineButton("Clear", {
+                            store.clearSlot(binder.id, ordinal)
+                            onDismiss()
+                        }, Modifier.weight(1f))
+                        AppButton("Put a card here", { step = Step.Browse }, Modifier.weight(1.3f), icon = AppIcons.Plus)
+                    }
+                }
+
+                SlotContent.Empty -> {
+                    SheetHeader(title = "Pocket ${ordinal + 1}", subtitle = pocketLocationLabel(binder, ordinal), onClose = onDismiss)
+                    SheetActions { AppButton("Add a card", { step = Step.Browse }, Modifier.weight(1f), icon = AppIcons.Plus) }
+                }
+            }
 
             Step.Browse -> BrowseStep(
                 binder = binder,
                 ordinal = ordinal,
                 snapshot = snapshot,
                 lookup = lookup,
+                browser = browser,
                 importing = importing,
                 onClose = onDismiss,
-                // Importing is the only thing in this sheet that can fail or take time.
-                // It runs here rather than inside the browse step so a card that is
-                // half-fetched when the user backs out does not leave a dangling job
-                // writing into a screen that has gone.
+                // Importing is the only thing in this sheet that can fail or take time. It
+                // runs here rather than inside the browse step so a card half-fetched when
+                // the user backs out does not leave a job writing into a screen that is gone.
                 onPickRemote = { hit, intent ->
                     importing = true
                     scope.launch {
@@ -240,64 +339,31 @@ fun SlotSheet(
                 },
             )
 
-            is Step.Acquire -> CopyDetailsStep(
-                brief = current.brief,
-                variants = snapshot.variantBriefs(current.brief.variantId),
-                existing = null,
-                title = "Add to Pocket ${ordinal + 1}",
-                confirmLabel = "Add to binder",
-                onBack = { step = Step.Browse },
+            is Step.Acquire -> AcquireStep(
+                snapshot = snapshot,
+                brief = snapshot.variantBriefs(current.brief.variantId).firstOrNull { it.variantId == current.brief.variantId } ?: current.brief,
+                ordinal = ordinal,
+                history = history,
+                onBack = { step = if (slot is SlotContent.Empty) Step.Browse else Step.Detail },
                 onClose = onDismiss,
-                onConfirm = { chosen, condition, paid, grade, notes ->
-                    store.addCopyToSlot(
+                onPlaceExisting = { copyId ->
+                    store.placeCopy(binder.id, ordinal, copyId)
+                    onDismiss()
+                },
+                onConfirm = { details ->
+                    val copyId = store.addCopyToSlot(
                         binderId = binder.id,
                         ordinal = ordinal,
-                        variantId = chosen.variantId,
-                        condition = condition,
-                        acquiredPrice = paid,
-                        grade = grade,
-                        notes = notes,
+                        variantId = details.variantId,
+                        condition = details.condition,
+                        acquiredPrice = details.paid,
+                        grade = details.grade,
+                        notes = details.notes,
                     )
+                    store.updateCopyMoney(copyId, details.paid, details.acquiredDate, details.valueOverride)
                     onDismiss()
                 },
             )
-
-            is Step.EditCopy -> {
-                val copy = snapshot.copies[current.copyId]
-                val brief = copy?.let { snapshot.brief(it.variantId) }
-                if (copy == null || brief == null) {
-                    MissingRecord(
-                        message = "That card is no longer in your collection.",
-                        onBack = { step = Step.Detail },
-                        onClose = onDismiss,
-                    )
-                } else {
-                    CopyDetailsStep(
-                        brief = brief,
-                        variants = snapshot.variantBriefs(copy.variantId),
-                        existing = copy,
-                        title = "Edit card",
-                        confirmLabel = "Save changes",
-                        onBack = { step = Step.Detail },
-                        onClose = onDismiss,
-                        // Re-pointing the copy at another press run is the whole reason
-                        // the picker is offered on an existing card: "I filed this as a
-                        // normal, it is actually the reverse" is a correction, not a new
-                        // card, and re-recording it would lose what it cost.
-                        onConfirm = { chosen, condition, paid, grade, notes ->
-                            store.updateCopy(
-                                copyId = copy.id,
-                                condition = condition,
-                                acquiredPrice = paid,
-                                grade = grade,
-                                notes = notes,
-                                variantId = chosen.variantId,
-                            )
-                            step = Step.Detail
-                        },
-                    )
-                }
-            }
 
             Step.CreateCard -> CreateCardStep(
                 onBack = { step = Step.Browse },
@@ -323,189 +389,181 @@ fun SlotSheet(
     }
 }
 
-/** Shown when a step outlives the record it was opened for -- deleted from elsewhere. */
+/** Shown when a pocket outlives the record it points at -- deleted from elsewhere. */
 @Composable
-private fun ColumnScope.MissingRecord(message: String, onBack: () -> Unit, onClose: () -> Unit) {
+private fun ColumnScope.MissingRecord(message: String, actionLabel: String, onAction: () -> Unit, onClose: () -> Unit) {
     SheetHeader(title = "Not found", onClose = onClose)
     SheetBody(scrollable = false) {
         Text(message, color = Ink.TextSecondary, style = MaterialTheme.typography.bodyLarge)
     }
-    SheetActions { AppButton("Back", onBack, Modifier.weight(1f)) }
+    SheetActions { AppButton(actionLabel, onAction, Modifier.weight(1f)) }
 }
 
-// ------------------------------------------------------------------- detail
+/** Copies of a printing that are not filed anywhere, plainest first. */
+private fun CollectionSnapshot.unfiledCopiesOf(printingId: PrintingId): List<Copy> =
+    copies.values
+        .filter { it.location == Location.Unassigned && variants[it.variantId]?.printingId == printingId }
+        .sortedBy { listOf(it.acquiredPrice, it.grade, it.notes).count { field -> field != null } }
 
+// ------------------------------------------------------------------- wanted
+
+/**
+ * A pocket held open for a card: the same card menu, with the hunt's actions.
+ *
+ * Every variation is listed with its price and move, and tapping one re-aims the want at
+ * it. The price it is being hunted at can be set, and "I got it" goes straight to recording
+ * the copy -- or, when a copy of it is already lying unfiled, to placing that one.
+ */
 @Composable
-private fun ColumnScope.SlotDetailStep(
-    binder: Binder,
-    ordinal: Int,
-    slot: SlotContent,
+private fun ColumnScope.WantedCardContent(
     snapshot: CollectionSnapshot,
+    brief: CardBrief,
+    targetPrice: Money?,
+    where: String,
+    history: PriceHistory,
     onClose: () -> Unit,
-    onSetForTrade: (CopyId, Boolean) -> Unit,
     onChangeWanted: (CardBrief) -> Unit,
-    onReplace: () -> Unit,
-    onEditCopy: (CopyId) -> Unit,
-    onAcquireWanted: (CardBrief) -> Unit,
+    onSetTarget: (Money?) -> Unit,
+    onGotIt: () -> Unit,
+    onPlaceUnfiled: (CopyId) -> Unit,
+    onSwap: () -> Unit,
     onClear: () -> Unit,
-    onDeleteCopy: (CopyId) -> Unit,
 ) {
-    SheetHeader(
-        title = "Pocket ${ordinal + 1}",
-        subtitle = pocketLocationLabel(binder, ordinal),
-        onClose = onClose,
-    )
+    val variations = remember(snapshot.variants, snapshot.prices, brief.variantId) { snapshot.variantBriefs(brief.variantId) }
+    val unfiled = remember(snapshot.copies, brief.printingId) { snapshot.unfiledCopiesOf(brief.printingId) }
+    var target by remember(brief.variantId) { mutableStateOf(targetPrice?.toPriceInput().orEmpty()) }
 
-    when (slot) {
-        is SlotContent.Filled -> {
-            val copy = snapshot.copies[slot.copyId]
-            val brief = copy?.let { snapshot.brief(it.variantId) }
-            if (copy == null || brief == null) {
-                SheetBody(scrollable = false) {
-                    Text(
-                        text = "This pocket points at a card that is no longer in your collection.",
-                        color = Ink.TextSecondary,
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                }
-                SheetActions { AppButton("Empty the pocket", onClear, Modifier.weight(1f)) }
-                return
-            }
+    SheetHeader(title = brief.name, subtitle = "Wanted · $where", onClose = onClose)
 
-            val value = snapshot.valueOf(copy)
-            val paid = copy.acquiredPrice
-            // Only against a price in the same money. What was paid is a figure typed in
-            // the user's own currency; subtracting it from a euro quote is not a quantity.
-            val gain = paid?.takeIf { brief.currency == Currency.USD }?.let { value - it }
+    SheetBody {
+        CardHero(
+            brief = brief,
+            valueLabel = (targetPrice ?: brief.marketValue).displayOrDash(brief.currency),
+            caption = brief.badge ?: brief.finish.label,
+        )
 
-            SheetBody {
-                CardHero(
-                    brief = brief,
-                    valueLabel = value.displayOrDash(brief.currency),
-                    caption = brief.finish.label,
-                )
-
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    DetailRow("Condition", copy.condition.label)
-                    copy.grade?.let { DetailRow("Grade", it.label + (it.certNumber?.let { c -> " · $c" } ?: "")) }
-                    DetailRow("Market value", value.displayOrDash(brief.currency))
-                    DetailRow("Paid", paid?.display() ?: "not recorded")
-                    if (gain != null) {
-                        DetailRow(
-                            label = "Unrealised",
-                            value = (if (gain.cents >= 0) "+" else "") + gain.display(),
-                            valueColor = if (gain.cents >= 0) Ink.Gain else Ink.Loss,
-                        )
-                    }
-                }
-
-                TradeToggleRow(
-                    checked = copy.forTrade,
-                    onCheckedChange = { onSetForTrade(copy.id, it) },
-                )
-
-                copy.notes?.let { notes ->
-                    Column {
-                        FieldLabel("Notes")
-                        Spacer(Modifier.height(6.dp))
-                        Text(notes, color = Ink.TextSecondary, style = MaterialTheme.typography.bodyMedium)
-                    }
-                }
-
-                Hairline()
-
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppOutlineButton(
-                        label = "Edit card details",
-                        onClick = { onEditCopy(copy.id) },
-                        modifier = Modifier.fillMaxWidth(),
-                        icon = AppIcons.Edit,
-                    )
-                    AppOutlineButton(
-                        label = "Swap for another card",
-                        onClick = onReplace,
-                        modifier = Modifier.fillMaxWidth(),
-                        icon = AppIcons.Cards,
-                    )
-                }
-            }
-
-            SheetActions {
-                AppOutlineButton("Take out", onClear, Modifier.weight(1f))
-                AppButton(
-                    label = "Delete copy",
-                    onClick = { onDeleteCopy(copy.id) },
-                    modifier = Modifier.weight(1f),
-                    tone = ButtonTone.Danger,
-                    icon = AppIcons.Trash,
-                )
-            }
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            DetailRow("Market value", brief.marketValue.displayOrDash(brief.currency))
+            DetailRow("Hunting at", targetPrice?.display() ?: "market price", valueColor = Ink.Wanted)
+            DetailRow("Counted toward", "cost to complete", valueColor = Ink.TextTertiary)
+            brief.rarity?.let { DetailRow("Rarity", it) }
         }
 
-        is SlotContent.Wanted -> {
-            val brief = snapshot.brief(slot.variantId)
-            if (brief == null) {
-                SheetBody(scrollable = false) {
-                    Text(
-                        text = "This want points at a card that is no longer in the catalog.",
-                        color = Ink.TextSecondary,
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                }
-                SheetActions { AppButton("Empty the pocket", onClear, Modifier.weight(1f)) }
-                return
-            }
+        VariationsSection(
+            options = variations,
+            selected = brief.variantId,
+            onSelect = onChangeWanted,
+            label = "Which one you are after",
+            trailing = { option -> if (option.variantId == brief.variantId) VariationMark("Hunting", Ink.Wanted) },
+        )
 
-            val target = slot.targetPrice ?: brief.marketValue
-            SheetBody {
-                CardHero(
-                    brief = brief,
-                    valueLabel = target.displayOrDash(brief.currency),
-                    caption = "Hunting",
-                )
+        VariantHistory(history, brief)
 
-                VariantPicker(
-                    variants = snapshot.variantBriefs(slot.variantId),
-                    selected = brief,
-                    onSelect = onChangeWanted,
-                    label = "Which one you are after",
-                )
+        AppTextField(
+            value = target,
+            onValueChange = {
+                target = it.filterPriceInput()
+                onSetTarget(target.toMoneyOrNull())
+            },
+            label = "Your target price (blank uses the market)",
+            placeholder = "market",
+            prefix = "$",
+            keyboardType = KeyboardType.Decimal,
+        )
 
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    DetailRow("Market value", brief.marketValue.displayOrDash(brief.currency))
-                    DetailRow("Counted toward", "cost to complete", valueColor = Ink.TextTertiary)
-                    brief.rarity?.let { DetailRow("Rarity", it) }
-                }
-            }
-            SheetActions {
-                AppOutlineButton("Clear", onClear, Modifier.weight(1f))
-                AppButton(
-                    label = "I got it",
-                    onClick = { onAcquireWanted(brief) },
-                    modifier = Modifier.weight(1.3f),
-                    icon = AppIcons.Check,
-                )
-            }
-        }
-
-        is SlotContent.Spacer -> {
-            SheetBody(scrollable = false) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FieldLabel("Where it is")
+            DetailRow("Held open", where)
+            if (unfiled.isNotEmpty()) {
                 Text(
-                    text = slot.label?.let { "Deliberately blank, labelled \"$it\"." }
-                        ?: "This pocket is deliberately blank. Reflowing the binder moves it but never fills it.",
-                    color = Ink.TextSecondary,
-                    style = MaterialTheme.typography.bodyLarge,
+                    text = "You have ${unfiled.size} of this card unfiled. Put one straight into this pocket:",
+                    color = Ink.TextTertiary,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                AppOutlineButton(
+                    label = "Place your unfiled copy",
+                    onClick = { onPlaceUnfiled(unfiled.first().id) },
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = AppIcons.Move,
                 )
             }
-            SheetActions {
-                AppOutlineButton("Clear", onClear, Modifier.weight(1f))
-                AppButton("Put a card here", onReplace, Modifier.weight(1.3f), icon = AppIcons.Plus)
+        }
+    }
+
+    SheetActions {
+        AppOutlineButton("Clear", onClear, Modifier.weight(1f))
+        AppOutlineButton("Swap", onSwap, Modifier.weight(1f))
+        AppButton("I got it", onGotIt, Modifier.weight(1.3f), icon = AppIcons.Check)
+    }
+}
+
+// ------------------------------------------------------------------- acquire
+
+/**
+ * Recording a copy into this pocket: the same card layout, with the shared copy form.
+ *
+ * When a copy of this card is already lying unfiled, the first thing offered is placing that
+ * one -- filing a card you had put down is not the same event as buying another.
+ */
+@Composable
+private fun ColumnScope.AcquireStep(
+    snapshot: CollectionSnapshot,
+    brief: CardBrief,
+    ordinal: Int,
+    history: PriceHistory,
+    onBack: () -> Unit,
+    onClose: () -> Unit,
+    onPlaceExisting: (CopyId) -> Unit,
+    onConfirm: (app.pocketful.ui.card.CopyDetails) -> Unit,
+) {
+    val variations = remember(snapshot.variants, snapshot.prices, brief.variantId) { snapshot.variantBriefs(brief.variantId) }
+    val form = rememberCopyForm(key = brief.variantId, copy = null, variant = brief)
+    val unfiled = remember(snapshot.copies, brief.printingId) { snapshot.unfiledCopiesOf(brief.printingId) }
+
+    SheetHeader(title = brief.name, subtitle = "Add to Pocket ${ordinal + 1}", onClose = onClose)
+
+    SheetBody {
+        CardHero(
+            brief = form.variant,
+            valueLabel = form.variant.marketValue.displayOrDash(form.variant.currency),
+            caption = form.variant.badge ?: form.variant.finish.label,
+        )
+
+        if (unfiled.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                FieldLabel("Already yours, unfiled · ${unfiled.size}")
+                unfiled.take(3).forEach { copy ->
+                    val copyBrief = snapshot.brief(copy.variantId) ?: return@forEach
+                    CardListRow(
+                        brief = copyBrief,
+                        subtitle = listOfNotNull(copyBrief.badge ?: copyBrief.finish.label, copy.condition.short, copy.grade?.label).joinToString(" · "),
+                        onClick = { onPlaceExisting(copy.id) },
+                        trailing = { ValueTrailing("Place", valueColor = Ink.Accent) },
+                    )
+                }
+                Text(
+                    text = "Or record a new copy below.",
+                    color = Ink.TextTertiary,
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
 
-        SlotContent.Empty -> {
-            SheetActions { AppButton("Add a card", onReplace, Modifier.weight(1f), icon = AppIcons.Plus) }
-        }
+        VariationsSection(
+            options = variations,
+            selected = form.variant.variantId,
+            onSelect = { form.variant = it },
+            label = "Which variation you have",
+        )
+
+        CopyFormFields(form)
+
+        VariantHistory(history, form.variant)
+    }
+
+    SheetActions {
+        AppOutlineButton("Back", onBack, Modifier.weight(1f))
+        AppButton("Add to binder", { onConfirm(form.result()) }, Modifier.weight(1.4f), icon = AppIcons.Plus)
     }
 }
 
@@ -517,6 +575,7 @@ private fun ColumnScope.BrowseStep(
     ordinal: Int,
     snapshot: CollectionSnapshot,
     lookup: CardLookup,
+    browser: CatalogBrowser,
     importing: Boolean,
     onClose: () -> Unit,
     onPickRemote: (SearchHit, Intent) -> Unit,
@@ -526,67 +585,15 @@ private fun ColumnScope.BrowseStep(
     onCreateCard: () -> Unit,
     onSpacer: () -> Unit,
 ) {
-    var query by remember { mutableStateOf("") }
+    LaunchedEffect(browser) { browser.load() }
+
+    // A binder built from a set opens on that set: filling a set binder is picking from
+    // its checklist, not searching the whole catalog for each card by name.
+    val sourceSet = remember(browser.sets, binder.sourceSetId) {
+        binder.sourceSetId?.let { id -> browser.sets.firstOrNull { it.id == id } }
+    }
+    var finder by remember(binder.id) { mutableStateOf(if (binder.sourceSetId != null) Finder.Browse else Finder.Search) }
     var intent by remember { mutableStateOf(Intent.Own) }
-    var scope by remember { mutableStateOf(Scope.All) }
-
-    // The one search box drives both catalogs. Typing twice to look in two places for the
-    // same card would be the app admitting it has two catalogs, which is not the user's
-    // problem -- local results appear instantly and online ones arrive a moment later.
-    LaunchedEffect(query) { lookup.onQueryChanged(query) }
-
-    // One row per printing, not per press run. Importing one card writes a variant for
-    // every finish it was printed in, so a catalog holding a single Grubbin listed it
-    // twice -- once as the normal, once as the reverse -- with the same art, name and
-    // number on both rows. Which finish is in your hand is asked on the next step, where
-    // the price of each is shown against it.
-    val catalog = remember(snapshot) { snapshot.allBriefs().byPrinting() }
-    val results = remember(catalog, query) { catalog.search(query, limit = 30) }
-    // Counted per printing to match, so a row standing for three variants does not claim
-    // you own none of it because the copy you own is the reverse rather than the normal.
-    val ownedCounts = remember(snapshot) {
-        snapshot.copies.values
-            .mapNotNull { snapshot.variants[it.variantId]?.printingId }
-            .groupingBy { it }
-            .eachCount()
-    }
-    val unfiled = remember(snapshot) {
-        snapshot.copies.values
-            .filter { it.location == Location.Unassigned }
-            .mapNotNull { copy -> snapshot.brief(copy.variantId)?.let { copy to it } }
-    }
-
-    val searching = query.isNotBlank()
-    // The filter only means anything against a query. Left to apply while the box is
-    // empty it would be a switch between "your shelf" and "the whole catalog" as a
-    // browsing mode, which is a second, quieter version of the intent control above it.
-    val mineOnly = searching && scope == Scope.Mine
-
-    // Cards you already have, ranked by the same search the catalog gets so that a copy
-    // and a catalog row never disagree about which of them matched better.
-    val yours = remember(unfiled, query) {
-        if (query.isBlank()) {
-            unfiled
-        } else {
-            val rank = unfiled.map { it.second }
-                .search(query, limit = 60)
-                .withIndex()
-                .associate { (index, brief) -> brief.variantId to index }
-            unfiled
-                .filter { it.second.variantId in rank }
-                .sortedBy { rank[it.second.variantId] }
-        }
-    }
-
-    // A card you are holding is either one the collection already knows about -- in which
-    // case it is above, under your own cards -- or a new one, which is what the catalog is
-    // for. Browsing the catalog with nothing typed is the *want* gesture: it is how a set
-    // binder gets its gaps opened. Under "I own it" it was offering every card the app had
-    // ever heard of as though you owned them all.
-    val showCatalog = !(intent == Intent.Own && !searching)
-    val catalogRows = remember(results, mineOnly, ownedCounts) {
-        if (mineOnly) results.filter { (ownedCounts[it.printingId] ?: 0) > 0 } else results
-    }
 
     SheetHeader(
         title = "Pocket ${ordinal + 1}",
@@ -595,11 +602,8 @@ private fun ColumnScope.BrowseStep(
     )
 
     SheetBody {
-
-        // Each side wears the colour it means everywhere else -- green for a card you
-        // have, violet for one you are hunting -- so which way this is set is legible
-        // without reading it. It decides whether the next tap files a card you are
-        // holding or opens a gap for one you are not, and that is worth a colour.
+        // Each side wears the colour it means everywhere else -- green for a card you have,
+        // violet for one you are hunting -- because it decides what the next tap does.
         SegmentedControl(
             options = Intent.entries.toList(),
             selected = intent,
@@ -607,355 +611,334 @@ private fun ColumnScope.BrowseStep(
             label = { it.label },
             accent = { it.accent },
         )
-
-        SearchField(
-            value = query,
-            onValueChange = { query = it },
-            placeholder = "Search cards, sets, numbers",
+        SegmentedControl(
+            options = Finder.entries.toList(),
+            selected = finder,
+            onSelect = { finder = it },
+            label = { it.label },
         )
 
-        // Only once there is a query to narrow. An empty box has nothing to scope.
-        if (searching) {
-            SegmentedControl(
-                options = Scope.entries.toList(),
-                selected = scope,
-                onSelect = { scope = it },
-                label = { it.label },
+        when (finder) {
+            Finder.Search -> SearchFinder(
+                snapshot = snapshot,
+                lookup = lookup,
+                intent = intent,
+                importing = importing,
+                onPickRemote = onPickRemote,
+                onPickOwned = onPickOwned,
+                onPickWanted = onPickWanted,
+                onPlaceExisting = onPlaceExisting,
             )
-        }
 
-        // Your own cards, and under "I own it" the only thing shown until you search.
-        // These place the copy that already exists rather than recording a second one --
-        // filing a card you had put down somewhere is not the same event as buying it.
-        if (intent == Intent.Own) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                // The same name in both states. Calling it "Yours" while searching and
-                // "Unfiled in your collection" while not made one list look like two.
-                SectionHeader("Unfiled In Your Collection · ${yours.size}")
-                yours.forEach { (copy, brief) ->
-                    CardListRow(
-                        brief = brief,
-                        subtitle = "${brief.setName} · ${copy.condition.short}",
-                        onClick = { onPlaceExisting(copy.id) },
-                        trailing = { ValueTrailing(snapshot.valueOf(copy).display()) },
-                    )
-                }
-                if (yours.isEmpty()) {
-                    Text(
-                        // Says *unfiled*, not "nothing of yours". A copy already sitting
-                        // in another pocket is very much yours, and this list leaves it
-                        // out on purpose -- a card cannot be in two pockets at once. The
-                        // vaguer wording put "Nothing of yours matches" directly above a
-                        // catalog row badged "Own 1", which reads as the app contradicting
-                        // itself rather than as two different questions.
-                        text = if (searching) {
-                            "No unfiled card of yours matches \"$query\". A copy already " +
-                                "in a pocket stays where it is."
-                        } else {
-                            "Nothing filed away loose. Search for a card you are holding " +
-                                "and it gets recorded into this pocket."
-                        },
-                        color = Ink.TextTertiary,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
-        }
-
-        // Local matches, and *only* when there are some.
-        //
-        // A query that the local catalog cannot answer used to render a full-height "No
-        // matches -- you can add it by hand" here, with a primary button, between the
-        // search box and the online results that were about to arrive with the answer.
-        // On a new install the local catalog is empty by definition, so that was every
-        // first search anyone ever ran: the app met its own core gesture -- filling a
-        // pocket -- by announcing the card did not exist and offering a form to type it
-        // in, while the section that had it sat below the fold.
-        //
-        // So a fruitless local search now says nothing at all and lets the online section
-        // speak. The by-hand escape hatch has not gone anywhere; it is at the foot of this
-        // sheet, where it belongs once both catalogs have actually been asked.
-        if (showCatalog && (!searching || catalogRows.isNotEmpty())) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionHeader(
-                    when {
-                        // Counting printings rather than press runs makes a catalog of
-                        // one an ordinary thing to see, so it has to be able to say so.
-                        !searching && catalog.size == 1 -> "Catalog · 1 Card"
-                        !searching -> "Catalog · ${catalog.size} Cards"
-                        catalogRows.size == 1 -> "1 Match"
-                        else -> "${catalogRows.size} Matches"
-                    },
-                )
-                if (!searching && catalog.isEmpty()) {
-                    Text(
-                        text = "Cards you file turn up here. Search to pull one out of the " +
-                            "online catalog.",
-                        color = Ink.TextTertiary,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                catalogRows.forEach { brief ->
-                    val ownedCount = ownedCounts[brief.printingId] ?: 0
-                    CardListRow(
-                        brief = brief,
-                        leadingBadge = if (ownedCount > 0) "Own $ownedCount" else null,
-                        onClick = {
-                            if (intent == Intent.Own) onPickOwned(brief) else onPickWanted(brief)
-                        },
-                        trailing = {
-                            ValueTrailing(
-                                value = brief.marketValue.displayOrDash(brief.currency),
-                                valueColor = Ink.Gold,
-                            )
-                        },
-                    )
-                }
-            }
-        }
-
-        // Nothing online is yours by definition, so a search narrowed to the collection
-        // does not reach for it -- and does not spend a request finding that out.
-        if (!mineOnly && query.trim().length >= 2) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionHeader(
-                    title = when {
-                        lookup.searching -> "Searching The Full Catalog…"
-                        lookup.results.isEmpty() -> "Full Catalog"
-                        else -> "Full Catalog · ${lookup.results.size} Found"
-                    },
-                )
-
-                lookup.error?.let { message ->
-                    Text(message, color = Ink.TextTertiary, style = MaterialTheme.typography.bodySmall)
-                }
-
-                if (importing) {
-                    Text(
-                        text = "Fetching card details…",
-                        color = Ink.TextSecondary,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-
-                // Cards already in the local catalog are filtered out rather than shown
-                // greyed: they are listed above under the local results, and a row that
-                // appears twice in one sheet reads as a bug.
-                //
-                // Matched on name and printed number rather than on id. Ids only line up
-                // for cards that came from this catalog in the first place, so an id
-                // check would let every card the app shipped with appear twice.
-                val known = remember(catalog) {
-                    catalog.map { "${it.name.lowercase()}|${it.collectorNumber.lowercase()}" }.toSet()
-                }
-                lookup.results
-                    .filterNot { "${it.name.lowercase()}|${it.collectorNumber.lowercase()}" in known }
-                    .forEach { hit ->
-                        CatalogCardRow(
-                            hit = hit,
-                            onClick = { onPickRemote(hit, intent) },
-                            enabled = !importing,
-                            trailingIcon = AppIcons.Plus,
-                        )
-                    }
-
-                // The one place a search is told it found nothing, so it has to carry
-                // the whole answer -- "either" would be dangling now that a fruitless
-                // local search says nothing above.
-                if (!lookup.searching && lookup.results.isEmpty() && lookup.error == null) {
-                    Text(
-                        text = if (catalogRows.isEmpty()) {
-                            "No card matches \"$query\", here or online. If you are holding " +
-                                "one anyway, add it by hand below."
-                        } else {
-                            "Nothing more in the online catalog."
-                        },
-                        color = Ink.TextTertiary,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
-        }
-
-        // The collection-only case has no online section to carry this, and a scoped
-        // search that finds nothing should say what it did not look at rather than let
-        // an empty sheet imply the card does not exist.
-        if (mineOnly && yours.isEmpty() && catalogRows.isEmpty()) {
-            Text(
-                text = "Nothing in your collection matches \"$query\". Switch to All cards " +
-                    "to look through the catalog as well.",
-                color = Ink.TextTertiary,
-                style = MaterialTheme.typography.bodySmall,
+            Finder.Browse -> CatalogFinder(
+                snapshot = snapshot,
+                browser = browser,
+                startSet = sourceSet,
+                intent = intent,
+                importing = importing,
+                onPickRemote = onPickRemote,
             )
         }
 
         Hairline()
 
-        // Side by side rather than stacked. Neither is the common path -- both are things
-        // you reach for once both catalogs have failed you -- and two full-width buttons
-        // at the foot of the sheet took as much room as three card rows.
-        //
-        // No glyphs on these two. A plus and a minus beside a label that has to wrap puts
-        // the icon against the middle of a two-line block and leaves about fifteen
-        // characters a line to say something neither icon could have said on its own.
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AppOutlineButton(
-                label = "Add a missing card",
-                onClick = onCreateCard,
-                modifier = Modifier.weight(1f),
-                maxLines = 2,
-            )
-            AppOutlineButton(
-                label = "Leave this pocket blank",
-                onClick = onSpacer,
-                modifier = Modifier.weight(1f),
-                maxLines = 2,
-            )
+            AppOutlineButton(label = "Add a missing card", onClick = onCreateCard, modifier = Modifier.weight(1f), maxLines = 2)
+            AppOutlineButton(label = "Leave this pocket blank", onClick = onSpacer, modifier = Modifier.weight(1f), maxLines = 2)
         }
     }
 }
 
-// ------------------------------------------------------------- copy details
-
-@Suppress("LongParameterList")
+/** The owned count of each printing in the collection, for "Own 2" badges. */
 @Composable
-private fun ColumnScope.CopyDetailsStep(
-    brief: CardBrief,
-    variants: List<CardBrief>,
-    existing: Copy?,
-    title: String,
-    confirmLabel: String,
-    onBack: () -> Unit,
-    onClose: () -> Unit,
-    onConfirm: (CardBrief, Condition, Money?, Grade?, String?) -> Unit,
+private fun rememberOwnedCounts(snapshot: CollectionSnapshot): Map<PrintingId, Int> = remember(snapshot.copies, snapshot.variants) {
+    snapshot.copies.values
+        .mapNotNull { snapshot.variants[it.variantId]?.printingId }
+        .groupingBy { it }
+        .eachCount()
+}
+
+@Composable
+private fun SearchFinder(
+    snapshot: CollectionSnapshot,
+    lookup: CardLookup,
+    intent: Intent,
+    importing: Boolean,
+    onPickRemote: (SearchHit, Intent) -> Unit,
+    onPickOwned: (CardBrief) -> Unit,
+    onPickWanted: (CardBrief) -> Unit,
+    onPlaceExisting: (CopyId) -> Unit,
 ) {
-    // Which press run this copy is. Keyed to the card the step was opened on, so backing
-    // out and picking a different card starts from that card's own finish rather than
-    // from whichever chip was last pressed.
-    var chosen by remember(existing?.id, brief.variantId) { mutableStateOf(brief) }
-    var condition by remember(existing?.id) { mutableStateOf(existing?.condition ?: Condition.NEAR_MINT) }
-    var paid by remember(existing?.id) { mutableStateOf(existing?.acquiredPrice?.toPriceInput() ?: "") }
-    var graded by remember(existing?.id) { mutableStateOf(existing?.grade != null) }
-    var company by remember(existing?.id) { mutableStateOf(existing?.grade?.company ?: GradingCompany.PSA) }
-    var score by remember(existing?.id) { mutableStateOf(existing?.grade?.score ?: "") }
-    var cert by remember(existing?.id) { mutableStateOf(existing?.grade?.certNumber ?: "") }
-    var notes by remember(existing?.id) { mutableStateOf(existing?.notes ?: "") }
+    var query by remember { mutableStateOf("") }
+    var scope by remember { mutableStateOf(Scope.All) }
+    var showAllUnfiled by remember { mutableStateOf(false) }
 
-    SheetHeader(title = title, onClose = onClose)
+    LaunchedEffect(query) { lookup.onQueryChanged(query) }
 
-    SheetBody {
-        CardHero(
-            brief = chosen,
-            valueLabel = chosen.marketValue.displayOrDash(chosen.currency),
-            caption = chosen.finish.label,
-        )
+    // One row per printing, not per press run; the variation is chosen on the next step.
+    val catalog = remember(snapshot.variants, snapshot.prices) { snapshot.allBriefs().byPrinting() }
+    val results = remember(catalog, query) { catalog.search(query, limit = 30) }
+    val ownedCounts = rememberOwnedCounts(snapshot)
+    val unfiled = remember(snapshot.copies, snapshot.variants) {
+        snapshot.copies.values
+            .filter { it.location == Location.Unassigned }
+            .mapNotNull { copy -> snapshot.brief(copy.variantId)?.let { copy to it } }
+            .sortedByDescending { snapshot.valueOf(it.first).cents }
+    }
 
-        VariantPicker(variants = variants, selected = chosen, onSelect = { chosen = it })
+    val searching = query.isNotBlank()
+    val mineOnly = searching && scope == Scope.Mine
 
-        Column {
-            FieldLabel("Condition")
-            Spacer(Modifier.height(8.dp))
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Condition.entries.forEach { option ->
-                    ChoiceChip(
-                        label = option.short,
-                        selected = option == condition,
-                        onClick = { condition = option },
-                    )
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = condition.label + " · " + conditionMultiplierLabel(condition),
-                color = Ink.TextTertiary,
-                style = MaterialTheme.typography.bodySmall,
-            )
+    val yours = remember(unfiled, query) {
+        if (query.isBlank()) {
+            unfiled
+        } else {
+            val rank = unfiled.map { it.second }.search(query, limit = 60).withIndex()
+                .associate { (index, brief) -> brief.variantId to index }
+            unfiled.filter { it.second.variantId in rank }.sortedBy { rank[it.second.variantId] }
         }
+    }
+    val catalogRows = remember(results, mineOnly, ownedCounts) {
+        if (mineOnly) results.filter { (ownedCounts[it.printingId] ?: 0) > 0 } else results
+    }
 
-        AppTextField(
-            value = paid,
-            onValueChange = { paid = it.filterPriceInput() },
-            label = "What you paid",
-            placeholder = "0.00",
-            prefix = "$",
-            keyboardType = KeyboardType.Decimal,
-        )
+    SearchField(value = query, onValueChange = { query = it }, placeholder = "Search cards, sets, numbers")
 
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Graded", color = Ink.TextPrimary, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        text = "Slabbed copies are valued at the raw price until graded pricing lands.",
-                        color = Ink.TextTertiary,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                ToggleSwitch(checked = graded, onCheckedChange = { graded = it })
+    if (searching) {
+        SegmentedControl(options = Scope.entries.toList(), selected = scope, onSelect = { scope = it }, label = { it.label })
+    }
+
+    // Loose cards place the copy that already exists rather than recording a second one.
+    // Capped until asked, so a collection with hundreds of bulk cards unfiled does not bury
+    // the rest of this sheet under them -- search narrows them, and Browse sets skips them.
+    if (intent == Intent.Own && yours.isNotEmpty()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SectionHeader("Unfiled In Your Collection · ${yours.size}")
+            val shown = if (showAllUnfiled || searching) yours.take(60) else yours.take(UNFILED_PREVIEW)
+            shown.forEach { (copy, brief) ->
+                CardListRow(
+                    brief = brief,
+                    subtitle = "${brief.setName} · ${copy.condition.short}",
+                    onClick = { onPlaceExisting(copy.id) },
+                    trailing = { ValueTrailing(snapshot.valueOf(copy).display()) },
+                )
             }
-
-            if (graded) {
-                Spacer(Modifier.height(14.dp))
-                Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    GradingCompany.entries.forEach { option ->
-                        ChoiceChip(
-                            label = option.name,
-                            selected = option == company,
-                            onClick = { company = option },
-                            accent = Ink.Gold,
-                        )
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    AppTextField(
-                        value = score,
-                        onValueChange = { score = it },
-                        label = "Score",
-                        placeholder = "10",
-                        modifier = Modifier.weight(1f),
-                    )
-                    AppTextField(
-                        value = cert,
-                        onValueChange = { cert = it },
-                        label = "Cert number",
-                        placeholder = "optional",
-                        modifier = Modifier.weight(1.6f),
-                    )
-                }
+            if (!searching && !showAllUnfiled && yours.size > UNFILED_PREVIEW) {
+                AppOutlineButton(
+                    label = "Show all ${yours.size} unfiled",
+                    onClick = { showAllUnfiled = true },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
+    }
 
-        AppTextField(
-            value = notes,
-            onValueChange = { notes = it },
-            label = "Notes",
-            placeholder = "Where it came from, anything worth remembering",
-            singleLine = false,
+    if (searching && catalogRows.isNotEmpty()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SectionHeader(if (catalogRows.size == 1) "1 Match" else "${catalogRows.size} Matches")
+            catalogRows.forEach { brief ->
+                val ownedCount = ownedCounts[brief.printingId] ?: 0
+                CardListRow(
+                    brief = brief,
+                    leadingBadge = if (ownedCount > 0) "Own $ownedCount" else null,
+                    onClick = { if (intent == Intent.Own) onPickOwned(brief) else onPickWanted(brief) },
+                    trailing = { ValueTrailing(value = brief.marketValue.displayOrDash(brief.currency), valueColor = Ink.Gold) },
+                )
+            }
+        }
+    }
+
+    if (!searching) {
+        Text(
+            text = if (intent == Intent.Own) {
+                "Search for the card you are holding, or browse its set."
+            } else {
+                "Search for the card you are hunting, or browse its set."
+            },
+            color = Ink.TextTertiary,
+            style = MaterialTheme.typography.bodySmall,
         )
     }
 
-    SheetActions {
-        AppOutlineButton("Back", onBack, Modifier.weight(1f))
-        AppButton(
-            label = confirmLabel,
-            onClick = {
-                val grade = if (graded && score.isNotBlank()) {
-                    Grade(company, score.trim(), cert.trim().takeIf { it.isNotBlank() })
-                } else {
-                    null
+    if (!mineOnly && query.trim().length >= 2) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SectionHeader(
+                title = when {
+                    lookup.searching -> "Searching The Full Catalog…"
+                    lookup.results.isEmpty() -> "Full Catalog"
+                    else -> "Full Catalog · ${lookup.results.size} Found"
+                },
+            )
+            lookup.error?.let { Text(it, color = Ink.TextTertiary, style = MaterialTheme.typography.bodySmall) }
+            if (importing) Text("Fetching card details…", color = Ink.TextSecondary, style = MaterialTheme.typography.bodyMedium)
+
+            val known = remember(catalog) { catalog.map { "${it.name.lowercase()}|${it.collectorNumber.lowercase()}" }.toSet() }
+            lookup.results
+                .filterNot { "${it.name.lowercase()}|${it.collectorNumber.lowercase()}" in known }
+                .forEach { hit ->
+                    CatalogCardRow(hit = hit, onClick = { onPickRemote(hit, intent) }, enabled = !importing, trailingIcon = AppIcons.Plus)
                 }
-                onConfirm(chosen, condition, paid.toMoneyOrNull(), grade, notes)
-            },
-            modifier = Modifier.weight(1.4f),
-        )
+            if (!lookup.searching && lookup.results.isEmpty() && lookup.error == null) {
+                Text(
+                    text = if (catalogRows.isEmpty()) {
+                        "No card matches \"$query\", here or online. If you are holding one anyway, add it by hand below."
+                    } else {
+                        "Nothing more in the online catalog."
+                    },
+                    color = Ink.TextTertiary,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Walking the catalog to a card: game, then era and set, then the set's cards.
+ *
+ * The same order the Search tab browses in, compressed into the sheet, with a trail at the
+ * top to step back up. A card you already own is badged with how many, and one you have
+ * lying unfiled says so, since placing that copy is one tap on the next step.
+ */
+@Composable
+private fun CatalogFinder(
+    snapshot: CollectionSnapshot,
+    browser: CatalogBrowser,
+    startSet: RemoteSet?,
+    intent: Intent,
+    importing: Boolean,
+    onPickRemote: (SearchHit, Intent) -> Unit,
+) {
+    val connected = remember { TcgGame.browsable.filter { it.connected } }
+    var game by remember(startSet?.id) { mutableStateOf(startSet?.let { browser.gameOfSet(it.id) }) }
+    var set by remember(startSet?.id) { mutableStateOf(startSet) }
+    var filter by remember(game, set?.id) { mutableStateOf("") }
+
+    // The trail: every step back up is one tap.
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ChoiceChip(label = "Games", selected = game == null, onClick = {
+            game = null
+            set = null
+        })
+        game?.let { chosen ->
+            Icon(AppIcons.ChevronRight, null, Modifier.size(14.dp), tint = Ink.TextTertiary)
+            ChoiceChip(label = chosen.wordmark, selected = set == null, onClick = { set = null })
+        }
+        set?.let { chosen ->
+            Icon(AppIcons.ChevronRight, null, Modifier.size(14.dp), tint = Ink.TextTertiary)
+            ChoiceChip(label = chosen.name, selected = true, onClick = {})
+        }
+    }
+
+    when {
+        browser.loading && browser.sets.isEmpty() -> Text("Loading the catalog…", color = Ink.TextTertiary, style = MaterialTheme.typography.bodySmall)
+
+        game == null -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            browser.error?.let { Text(it, color = Ink.Loss, style = MaterialTheme.typography.bodySmall) }
+            connected.forEach { option ->
+                val size = browser.sizeOf(option)
+                BrowseRow(
+                    title = option.label,
+                    subtitle = size?.caption ?: option.note,
+                    onClick = { game = option },
+                )
+            }
+        }
+
+        set == null -> {
+            val chosenGame = game!!
+            val groups = remember(browser.groups, chosenGame) { browser.arrange(chosenGame) }
+            SearchField(value = filter, onValueChange = { filter = it }, placeholder = "Filter sets")
+            val needle = filter.trim().lowercase()
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                groups.forEach { group ->
+                    val sets = group.sets.filter { needle.isEmpty() || it.name.lowercase().contains(needle) || it.id.lowercase() == needle }
+                    if (sets.isEmpty()) return@forEach
+                    SectionHeader(group.series.name + (group.years?.let { " · $it" } ?: ""))
+                    sets.forEach { option ->
+                        BrowseRow(
+                            title = option.name,
+                            subtitle = listOfNotNull(option.id.uppercase(), option.releaseYear, option.officialCount?.let { "$it cards" }).joinToString(" · "),
+                            onClick = { set = option },
+                        )
+                    }
+                }
+            }
+        }
+
+        else -> {
+            val chosenSet = set!!
+            var cards by remember(chosenSet.id) { mutableStateOf<List<SearchHit>?>(null) }
+            LaunchedEffect(chosenSet.id) {
+                cards = browser.cardsInSet(chosenSet.id).sortedWith(
+                    compareBy({ it.number.takeWhile(Char::isDigit).toIntOrNull() ?: Int.MAX_VALUE }, { it.number }),
+                )
+            }
+            val ownedCounts = rememberOwnedCounts(snapshot)
+            val unfiledCounts = remember(snapshot.copies, snapshot.variants) {
+                snapshot.copies.values
+                    .filter { it.location == Location.Unassigned }
+                    .mapNotNull { snapshot.variants[it.variantId]?.printingId }
+                    .groupingBy { it }
+                    .eachCount()
+            }
+            SearchField(value = filter, onValueChange = { filter = it }, placeholder = "Filter by name or number")
+            if (importing) Text("Fetching card details…", color = Ink.TextSecondary, style = MaterialTheme.typography.bodyMedium)
+            val loaded = cards
+            if (loaded == null) {
+                Text("Loading ${chosenSet.name}…", color = Ink.TextTertiary, style = MaterialTheme.typography.bodySmall)
+            } else {
+                val needle = filter.trim().lowercase().removePrefix("#")
+                val shown = loaded.filter {
+                    needle.isEmpty() || it.name.lowercase().contains(needle) ||
+                        it.number.lowercase().trimStart('0') == needle.trimStart('0')
+                }
+                SectionHeader("${shown.size} of ${loaded.size} cards")
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    shown.forEach { hit ->
+                        val printing = CardImport.printingId(hit.id)
+                        val owned = ownedCounts[printing] ?: 0
+                        val loose = unfiledCounts[printing] ?: 0
+                        CatalogCardRow(
+                            hit = hit,
+                            onClick = { onPickRemote(hit, intent) },
+                            enabled = !importing,
+                            trailingIcon = AppIcons.Plus,
+                            badge = when {
+                                loose > 0 -> "Unfiled $loose"
+                                owned > 0 -> "Own $owned"
+                                else -> null
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** One step of the catalog trail: a game, or a set. */
+@Composable
+private fun BrowseRow(title: String, subtitle: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(AppShape.Medium)
+            .background(Ink.Surface)
+            .border(1.dp, Ink.OutlineFaint, AppShape.Medium)
+            .tappable(pressScale = 0.99f, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = Ink.TextPrimary, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, color = Ink.TextTertiary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Icon(AppIcons.ChevronRight, null, Modifier.size(16.dp), tint = Ink.TextTertiary)
     }
 }
 
@@ -1136,8 +1119,3 @@ private fun pocketLocationLabel(binder: Binder, ordinal: Int): String {
     ).joinToString(" · ")
 }
 
-private fun conditionMultiplierLabel(condition: Condition): String = when {
-    condition.multiplier > 1.0 -> "valued above market"
-    condition.multiplier == 1.0 -> "valued at market"
-    else -> "valued at ${(condition.multiplier * 100).toInt()}% of market"
-}

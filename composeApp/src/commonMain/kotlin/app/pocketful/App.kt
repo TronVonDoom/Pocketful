@@ -691,6 +691,8 @@ fun App() {
                     target = slotTarget,
                     store = store,
                     catalog = catalog,
+                    browser = browser,
+                    history = priceHistory,
                     onDismiss = { slotTarget = null },
                 )
 
@@ -698,8 +700,18 @@ fun App() {
                     copyId = openCopyId,
                     snapshot = snapshot,
                     history = priceHistory,
-                    onUpdateMoney = { id, paid, date, value -> store.updateCopyMoney(id, paid, date, value) },
-                    onSetGrade = { id, grade -> store.setGrade(id, grade) },
+                    onSave = { id, details ->
+                        store.editCopy(
+                            copyId = id,
+                            variantId = details.variantId,
+                            condition = details.condition,
+                            acquiredPrice = details.paid,
+                            acquiredDate = details.acquiredDate,
+                            grade = details.grade,
+                            valueOverride = details.valueOverride,
+                            notes = details.notes,
+                        )
+                    },
                     onMarkSold = { id, price, date ->
                         store.markSold(id, price, date)
                         openCopyId = null
@@ -723,12 +735,18 @@ fun App() {
                 val addingCounts = remember(snapshot.copies, addingVariants, destination) {
                     addingVariants.associate { it.variantId to store.countIn(it.variantId, destination) }
                 }
+                val ownedAnywhere = remember(snapshot.copies, addingCard) {
+                    addingCard?.let { card ->
+                        snapshot.copies.values.count { snapshot.variants[it.variantId]?.printingId == card.printingId }
+                    } ?: 0
+                }
                 AddToCollectionSheet(
                     brief = addingCard,
                     variants = addingVariants,
                     containers = snapshot.containers,
                     destination = destination,
                     counts = addingCounts,
+                    ownedAnywhere = ownedAnywhere,
                     history = priceHistory,
                     onDestinationChange = { id -> store.updateSettings { it.copy(addingTo = id) } },
                     onStep = { brief, delta ->
@@ -744,12 +762,13 @@ fun App() {
                         // left in place while the sheet is open so the plus still works.
                         store.pruneCatalog()
                     },
-                    onConfirm = { brief, details ->
+                    onConfirm = { _, details ->
                         store.addCopy(
-                            variantId = brief.variantId,
+                            variantId = details.variantId,
                             condition = details.condition,
                             acquiredPrice = details.paid,
                             grade = details.grade,
+                            notes = details.notes,
                             container = destination,
                             acquiredDate = details.acquiredDate,
                             valueOverride = details.valueOverride,
