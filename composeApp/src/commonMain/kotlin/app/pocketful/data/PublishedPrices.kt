@@ -143,7 +143,12 @@ class PriceDownload(
 
         if (onDisk != null) {
             val age = nowSeconds - (readStampSeconds() ?: 0L)
-            if (age in 0 until REFRESH_AFTER_SECONDS) {
+            // A file built before this build's newest field is fetched again now rather than
+            // when the day is up. It is not wrong, but it is missing figures the app would
+            // show: without this, a stamped card added the day stamps arrived sat unpriced
+            // for up to twenty hours beside a chart that already knew what it was worth.
+            val outdated = (onDisk.fetchedAt ?: "") < MINIMUM_FETCHED_AT
+            if (age in 0 until REFRESH_AFTER_SECONDS && !outdated) {
                 outcome = Outcome.FromDisk
                 return onDisk
             }
@@ -205,6 +210,14 @@ class PriceDownload(
 
         /** A day, because that is how often the figures behind it are rebuilt. */
         const val REFRESH_AFTER_SECONDS: Long = 20 * 60 * 60
+
+        /**
+         * The oldest price file this build is satisfied with, by its `fetchedAt`: the first
+         * one to carry special printings and the previous day's figures. Raised when the app
+         * starts reading something the file did not always have. ISO timestamps compare
+         * correctly as text.
+         */
+        const val MINIMUM_FETCHED_AT: String = "2026-09-13T02:00:00Z"
 
         fun defaultClient(): HttpClient = HttpClient {
             install(UserAgent) { agent = TcgDex.USER_AGENT }
