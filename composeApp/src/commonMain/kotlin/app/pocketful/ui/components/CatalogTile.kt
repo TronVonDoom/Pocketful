@@ -176,6 +176,74 @@ fun SetTile(
 }
 
 /**
+ * A set as a full-width row, for a list rather than a grid.
+ *
+ * Search results are the case this exists for. A set tile is a logo with a name under it,
+ * which is right when you are browsing an era and recognising wordmarks; it is wrong in a
+ * result list, where you are reading names against what you typed and a column of
+ * two-line captions under square logos scans far slower than a column of lines.
+ */
+@Composable
+fun SetRow(
+    set: CatalogSet,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(AppShape.Medium)
+            .background(Ink.Surface)
+            .border(1.dp, Ink.OutlineFaint, AppShape.Medium)
+            .tappable(pressScale = 0.985f, onClick = onClick)
+            .padding(app.pocketful.ui.theme.Space.md),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .width(58.dp)
+                .height(36.dp)
+                .clip(AppShape.Chip)
+                .background(Ink.SurfaceHigh)
+                .padding(5.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            val url = CardArt.logo(set.logo)
+            if (url != null) {
+                AsyncImage(
+                    model = url,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit,
+                )
+            } else {
+                Icon(AppIcons.Binders, null, Modifier.size(16.dp), tint = Ink.TextTertiary)
+            }
+        }
+        Spacer(Modifier.width(app.pocketful.ui.theme.Space.md))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = set.name,
+                color = Ink.TextPrimary,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = set.tileCaption(),
+                color = Ink.TextTertiary,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.width(app.pocketful.ui.theme.Space.sm))
+        Icon(AppIcons.ChevronRight, null, Modifier.size(16.dp), tint = Ink.TextDisabled)
+    }
+}
+
+/**
  * The heading over one era's worth of sets.
  *
  * Carries the era's own wordmark for the same reason the tiles do: the grid below it is a

@@ -26,8 +26,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import app.pocketful.AppVersion
 import app.pocketful.data.CatalogSync
 import app.pocketful.domain.CollectionSnapshot
@@ -40,29 +38,46 @@ import app.pocketful.ui.components.ButtonTone
 import app.pocketful.ui.components.DetailRow
 import app.pocketful.ui.components.FieldLabel
 import app.pocketful.ui.components.Hairline
+import app.pocketful.ui.components.MetricCell
+import app.pocketful.ui.components.Note
 import app.pocketful.ui.components.Panel
-import app.pocketful.ui.components.ScreenBackdrop
-import app.pocketful.ui.components.ScreenHeader
-import app.pocketful.ui.components.Stat
-import app.pocketful.ui.components.SectionHeader
 import app.pocketful.ui.components.ProgressTrack
+import app.pocketful.ui.components.ScreenBackdrop
+import app.pocketful.ui.components.SectionHeader
 import app.pocketful.ui.components.Stepper
 import app.pocketful.ui.components.ToggleSwitch
+import app.pocketful.ui.components.TopBar
 import app.pocketful.ui.nav.islandBottomInset
 import app.pocketful.ui.theme.AppIcons
 import app.pocketful.ui.theme.Ink
+import app.pocketful.ui.theme.Space
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 /**
  * Preferences, and only ones that change something.
  *
- * Every switch here feeds a composable that reads it. There is deliberately no "coming
- * soon" section: a settings screen full of inert rows is worse than a short one.
+ * Settings is no longer a tab. It was taking a quarter of the navigation bar to be the
+ * screen people open twice and then not again for a month, while Trade and the card list --
+ * both places people go on purpose -- had no seat at all. It lives behind the gear on Home
+ * now, which is where a rarely-wanted, easily-found thing belongs.
+ *
+ * The order changed with it. The old screen opened on binder-page toggles and buried the
+ * catalog update four sections down, which is exactly backwards: almost nobody opens
+ * Settings to turn off holo shimmer, and almost everybody who opens it is there because a
+ * card has no picture or no price. So the two things that fetch data come first, the
+ * preferences sit in the middle, and everything that destroys something is at the bottom
+ * where it cannot be hit on the way past.
+ *
+ * There is deliberately no "coming soon" section: a settings screen full of inert rows is
+ * worse than a short one.
  */
 @Composable
 fun SettingsScreen(
     settings: AppSettings,
     snapshot: CollectionSnapshot,
     onUpdate: ((AppSettings) -> AppSettings) -> Unit,
+    onBack: () -> Unit,
     onReset: () -> Unit,
     onSyncCatalog: suspend ((done: Int, total: Int) -> Unit) -> CatalogSync.Result,
     transfer: CollectionTransfer,
@@ -72,8 +87,8 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
 ) {
     var confirmingReset by remember { mutableStateOf(false) }
-    // Nothing to back up is a reason to grey the button out rather than to let someone
-    // save an empty file and find out later that it was empty.
+    // Nothing to back up is a reason to grey the button out rather than to let someone save
+    // an empty file and find out later that it was empty.
     val hasSomethingToExport = snapshot.binders.isNotEmpty() ||
         snapshot.containers.isNotEmpty() ||
         snapshot.copies.isNotEmpty()
@@ -85,312 +100,341 @@ fun SettingsScreen(
 
     val listState = rememberLazyListState()
 
-    Box(modifier.fillMaxSize().background(Ink.Background)) {
-        ScreenBackdrop(Ink.Accent, height = 260.dp)
+    Box(modifier.fillMaxSize().background(Ink.Canvas)) {
+        ScreenBackdrop(Ink.Accent, height = 240.dp)
 
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize().statusBarsPadding(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = islandBottomInset()),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            // The header earns its place here now that it carries something: how much of
-            // the collection the catalog has actually resolved. That is the one figure a
-            // settings screen can state that its switches cannot, and it is the answer to
-            // "why does this card still have no picture" -- which is what brings most
-            // people to this screen in the first place.
-            item {
-                ScreenHeader(
-                    eyebrow = "Settings",
-                    centered = true,
-                    headline = "${snapshot.copies.size}",
-                    headlineCaption = "cards on file",
-                    stats = listOf(
-                        Stat("$withArt", "with art", if (withArt > 0) Ink.Gain else Ink.TextPrimary),
-                        Stat("$priced", "priced", if (priced > 0) Ink.Gold else Ink.TextPrimary),
-                        Stat("${snapshot.printings.size}", "printings"),
-                    ),
-                )
-            }
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+            TopBar(title = "Settings", onBack = onBack, backDescription = "Back to home")
 
-            item { SectionHeader("Binder page", Modifier.padding(top = 2.dp)) }
-            item {
-                Panel(padding = 4.dp) {
-                    SettingToggle(
-                        title = "Holo shimmer",
-                        description = "Animated sheen on foil cards, with the glitter that " +
-                            "catches it. Turn it off to save battery.",
-                        checked = settings.holoShimmer,
-                        onCheckedChange = { value -> onUpdate { it.copy(holoShimmer = value) } },
-                    )
-                    Hairline(Modifier.padding(horizontal = 14.dp))
-                    SettingToggle(
-                        title = "Prices in pockets",
-                        description = "Show each card's value on the page.",
-                        checked = settings.showPocketPrices,
-                        onCheckedChange = { value -> onUpdate { it.copy(showPocketPrices = value) } },
-                    )
-                    Hairline(Modifier.padding(horizontal = 14.dp))
-                    SettingToggle(
-                        title = "Ghost wanted cards",
-                        description = "Draw wanted cards as outlines instead of leaving the pocket blank.",
-                        checked = settings.showWantedGhosts,
-                        onCheckedChange = { value -> onUpdate { it.copy(showWantedGhosts = value) } },
-                    )
-                    Hairline(Modifier.padding(horizontal = 14.dp))
-                    SettingToggle(
-                        title = "Abbreviate large values",
-                        description = "Show \$1.2k instead of \$1,200.00 in tight spaces.",
-                        checked = settings.abbreviateValues,
-                        onCheckedChange = { value -> onUpdate { it.copy(abbreviateValues = value) } },
-                    )
-                }
-            }
-
-            item { SectionHeader("New binders", Modifier.padding(top = 4.dp)) }
-            item {
-                Panel {
-                    // The same picker the binder editor uses, so a default page shape can
-                    // be any shape a binder can be -- not just one off the preset list.
-                    LayoutPicker(
-                        layout = settings.defaultLayout,
-                        onLayoutChange = { layout -> onUpdate { it.copy(defaultLayout = layout) } },
-                    )
-
-                    Spacer(Modifier.height(20.dp))
-                    FieldLabel("Default sheet count")
-                    Spacer(Modifier.height(10.dp))
-                    Stepper(
-                        value = settings.defaultSheetCount,
-                        onValueChange = { value -> onUpdate { it.copy(defaultSheetCount = value) } },
-                        range = 1..60,
-                        suffix = if (settings.defaultSheetCount == 1) "sheet" else "sheets",
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "${settings.defaultLayout.capacity(settings.defaultSheetCount)} pockets " +
-                            "across ${settings.defaultLayout.faceCount(settings.defaultSheetCount)} pages.",
-                        color = Ink.TextTertiary,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
-
-            item { SectionHeader("Card data") }
-            item {
-                Panel {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        DetailRow("Catalog", "Pocketful catalog")
-                        DetailRow("With artwork", "$withArt of ${snapshot.printings.size}")
-                        DetailRow("Live prices", "$priced of ${snapshot.prices.size}")
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = Space.lg,
+                    end = Space.lg,
+                    top = Space.sm,
+                    bottom = islandBottomInset(),
+                ),
+                verticalArrangement = Arrangement.spacedBy(Space.md),
+            ) {
+                // How much of the collection the catalog has actually resolved. That is the
+                // one figure a settings screen can state that its switches cannot, and it is
+                // the answer to "why does this card still have no picture" -- which is what
+                // brings most people to this screen in the first place.
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(Space.md)) {
+                        MetricCell(
+                            value = "${snapshot.copies.size}",
+                            label = "cards",
+                            icon = AppIcons.Cards,
+                            modifier = Modifier.weight(1f),
+                        )
+                        MetricCell(
+                            value = "$withArt",
+                            label = "with art",
+                            accent = if (withArt > 0) Ink.Gain else Ink.TextPrimary,
+                            icon = AppIcons.Grid,
+                            modifier = Modifier.weight(1f),
+                        )
+                        MetricCell(
+                            value = "$priced",
+                            label = "priced",
+                            accent = if (priced > 0) Ink.Gold else Ink.TextPrimary,
+                            icon = AppIcons.Tag,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
+                }
 
-                    Spacer(Modifier.height(14.dp))
+                // ------------------------------------------------ what people come for
 
-                    when (val state = sync) {
-                        is SyncState.Running -> {
+                item { SectionHeader("Card data", Modifier.padding(top = Space.sm), icon = AppIcons.Refresh) }
+                item {
+                    Panel {
+                        Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
+                            DetailRow("Catalog", "Pocketful catalog")
+                            DetailRow("With artwork", "$withArt of ${snapshot.printings.size}")
+                            DetailRow("Live prices", "$priced of ${snapshot.prices.size}")
+                        }
+
+                        Spacer(Modifier.height(Space.lg))
+
+                        when (val state = sync) {
+                            is SyncState.Running -> {
+                                Text(
+                                    text = "Updating the catalog and your cards…",
+                                    color = Ink.TextSecondary,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                Spacer(Modifier.height(Space.md))
+                                ProgressTrack(
+                                    fraction = if (state.total == 0) 0f else {
+                                        state.done.toFloat() / state.total
+                                    },
+                                )
+                                Spacer(Modifier.height(Space.sm))
+                                Text(
+                                    text = "${state.done} of ${state.total}",
+                                    color = Ink.TextTertiary,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+
+                            is SyncState.Done -> {
+                                Note(state.message, error = state.failed)
+                                Spacer(Modifier.height(Space.md))
+                                AppOutlineButton(
+                                    label = "Update again",
+                                    onClick = { sync = startSync(scope, onSyncCatalog) { sync = it } },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    icon = AppIcons.Refresh,
+                                )
+                            }
+
+                            SyncState.Idle -> {
+                                Text(
+                                    text = "Pulls real artwork and current TCGplayer market prices for " +
+                                        "every card in your collection. Cards it cannot match are left " +
+                                        "exactly as they are.",
+                                    color = Ink.TextTertiary,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                Spacer(Modifier.height(Space.md))
+                                AppButton(
+                                    label = "Update card data",
+                                    onClick = { sync = startSync(scope, onSyncCatalog) { sync = it } },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    icon = AppIcons.Refresh,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item { SectionHeader("App updates", Modifier.padding(top = Space.sm), icon = AppIcons.Download) }
+                item { UpdatePanel() }
+
+                // ------------------------------------------------------- preferences
+
+                item { SectionHeader("Binder page", Modifier.padding(top = Space.sm), icon = AppIcons.Binders) }
+                item {
+                    Panel(padding = Space.xs) {
+                        SettingToggle(
+                            title = "Holo shimmer",
+                            description = "Animated sheen on foil cards, with the glitter that " +
+                                "catches it. Turn it off to save battery.",
+                            checked = settings.holoShimmer,
+                            onCheckedChange = { value -> onUpdate { it.copy(holoShimmer = value) } },
+                        )
+                        Hairline(Modifier.padding(horizontal = Space.md))
+                        SettingToggle(
+                            title = "Prices in pockets",
+                            description = "Show each card's value on the page.",
+                            checked = settings.showPocketPrices,
+                            onCheckedChange = { value -> onUpdate { it.copy(showPocketPrices = value) } },
+                        )
+                        Hairline(Modifier.padding(horizontal = Space.md))
+                        SettingToggle(
+                            title = "Ghost wanted cards",
+                            description = "Draw wanted cards as outlines instead of leaving the pocket blank.",
+                            checked = settings.showWantedGhosts,
+                            onCheckedChange = { value -> onUpdate { it.copy(showWantedGhosts = value) } },
+                        )
+                        Hairline(Modifier.padding(horizontal = Space.md))
+                        SettingToggle(
+                            title = "Abbreviate large values",
+                            description = "Show \$1.2k instead of \$1,200.00 in tight spaces.",
+                            checked = settings.abbreviateValues,
+                            onCheckedChange = { value -> onUpdate { it.copy(abbreviateValues = value) } },
+                        )
+                    }
+                }
+
+                item { SectionHeader("New binders", Modifier.padding(top = Space.sm), icon = AppIcons.Plus) }
+                item {
+                    Panel {
+                        // The same picker the binder editor uses, so a default page shape can
+                        // be any shape a binder can be -- not just one off the preset list.
+                        LayoutPicker(
+                            layout = settings.defaultLayout,
+                            onLayoutChange = { layout -> onUpdate { it.copy(defaultLayout = layout) } },
+                        )
+
+                        Spacer(Modifier.height(Space.xl))
+                        FieldLabel("Default sheet count")
+                        Spacer(Modifier.height(Space.sm))
+                        Stepper(
+                            value = settings.defaultSheetCount,
+                            onValueChange = { value -> onUpdate { it.copy(defaultSheetCount = value) } },
+                            range = 1..60,
+                            suffix = if (settings.defaultSheetCount == 1) "sheet" else "sheets",
+                        )
+                        Spacer(Modifier.height(Space.sm))
+                        Text(
+                            text = "${settings.defaultLayout.capacity(settings.defaultSheetCount)} pockets " +
+                                "across ${settings.defaultLayout.faceCount(settings.defaultSheetCount)} pages.",
+                            color = Ink.TextTertiary,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+
+                // ------------------------------------------------------ your own data
+
+                item { SectionHeader("Backup", Modifier.padding(top = Space.sm), icon = AppIcons.Download) }
+                item {
+                    Panel {
+                        val pending = transfer.pending
+                        if (pending != null) {
+                            // What is in the file, before the button that acts on it. The
+                            // counts are the question: "replace everything" is unanswerable,
+                            // "replace everything with 4 binders and 312 cards" is not.
                             Text(
-                                text = "Updating the catalog and your cards…",
+                                text = "${pending.fileName} holds " +
+                                    listOfNotNull(
+                                        plural(pending.binders, "binder"),
+                                        plural(pending.containers, "container"),
+                                        plural(pending.cards, "card"),
+                                    ).joinToString(", ") + ".",
+                                color = Ink.TextPrimary,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Spacer(Modifier.height(Space.md))
+                            Note(
+                                "Importing replaces every binder, box and card in the app with " +
+                                    "what is in this file. There is no undo, so export what you " +
+                                    "have first if you want to keep it.",
+                                error = true,
+                            )
+                            Spacer(Modifier.height(Space.md))
+                            Row(horizontalArrangement = Arrangement.spacedBy(Space.md)) {
+                                AppOutlineButton("Cancel", { transfer.dismiss() }, Modifier.weight(1f))
+                                AppButton(
+                                    label = "Replace",
+                                    onClick = onImportApply,
+                                    modifier = Modifier.weight(1f),
+                                    tone = ButtonTone.Danger,
+                                    icon = AppIcons.Download,
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = "A backup is one file holding your binders, boxes and cards, " +
+                                    "and the catalog entries they need to be readable on a phone " +
+                                    "that has never seen them.",
                                 color = Ink.TextSecondary,
                                 style = MaterialTheme.typography.bodyMedium,
                             )
-                            Spacer(Modifier.height(10.dp))
-                            ProgressTrack(
-                                fraction = if (state.total == 0) 0f else {
-                                    state.done.toFloat() / state.total
-                                },
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                text = "${state.done} of ${state.total}",
-                                color = Ink.TextTertiary,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
+                            Spacer(Modifier.height(Space.md))
+                            Row(horizontalArrangement = Arrangement.spacedBy(Space.md)) {
+                                AppOutlineButton(
+                                    label = "Export",
+                                    onClick = onExport,
+                                    modifier = Modifier.weight(1f),
+                                    enabled = !transfer.busy && hasSomethingToExport,
+                                )
+                                AppOutlineButton(
+                                    label = "Import",
+                                    onClick = onImportChoose,
+                                    modifier = Modifier.weight(1f),
+                                    enabled = !transfer.busy,
+                                )
+                            }
                         }
 
-                        is SyncState.Done -> {
-                            Text(
-                                text = state.message,
-                                color = if (state.failed) Ink.Loss else Ink.TextSecondary,
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                            Spacer(Modifier.height(12.dp))
-                            AppOutlineButton(
-                                label = "Update again",
-                                onClick = { sync = startSync(scope, onSyncCatalog) { sync = it } },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-
-                        SyncState.Idle -> {
-                            Text(
-                                text = "Pulls real artwork and current TCGplayer market prices for " +
-                                    "every card in your collection. Cards it cannot match are left " +
-                                    "exactly as they are.",
-                                color = Ink.TextTertiary,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            Spacer(Modifier.height(12.dp))
-                            AppButton(
-                                label = "Update card data",
-                                onClick = { sync = startSync(scope, onSyncCatalog) { sync = it } },
-                                modifier = Modifier.fillMaxWidth(),
-                                icon = AppIcons.Cards,
-                            )
+                        when (val status = transfer.status) {
+                            CollectionTransfer.Status.Idle -> Unit
+                            is CollectionTransfer.Status.Done -> {
+                                Spacer(Modifier.height(Space.md))
+                                Note(status.message)
+                            }
+                            is CollectionTransfer.Status.Problem -> {
+                                Spacer(Modifier.height(Space.md))
+                                Note(status.message, error = true)
+                            }
                         }
                     }
                 }
-            }
 
-            item { SectionHeader("Collection") }
-            item {
-                Panel {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        DetailRow("Binders", "${snapshot.binders.size}")
-                        DetailRow("Containers", "${snapshot.containers.size}")
-                        DetailRow("Cards owned", "${snapshot.copies.size}")
-                        DetailRow("Catalog entries", "${snapshot.variants.size}")
-                        DetailRow("Pockets", "${snapshot.binders.sumOf { it.capacity }}")
-                    }
-
-                    Spacer(Modifier.height(18.dp))
-
-                    if (confirmingReset) {
+                item { SectionHeader("About", Modifier.padding(top = Space.sm), icon = AppIcons.Info) }
+                item {
+                    Panel {
+                        Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
+                            // Read from the generated AppVersion rather than typed here, so
+                            // the number on this row is the number the updater compares
+                            // against a release tag and cannot drift from it.
+                            DetailRow("Pocketful", AppVersion.label)
+                            DetailRow(
+                                label = "Price data",
+                                value = if (priced > 0) "TCGplayer" else "none yet",
+                                caption = if (priced > 0) "market price, updated nightly" else null,
+                            )
+                            DetailRow("Storage", "on this device")
+                            DetailRow("Binders", "${snapshot.binders.size}")
+                            DetailRow("Boxes", "${snapshot.containers.size}")
+                            DetailRow("Pockets", "${snapshot.binders.sumOf { it.capacity }}")
+                            DetailRow("Catalog entries", "${snapshot.variants.size}")
+                        }
+                        Spacer(Modifier.height(Space.lg))
                         Text(
-                            text = "This deletes every binder, box and card in the app and leaves you " +
-                                "with an empty collection. There is no undo.",
-                            color = Ink.TextSecondary,
-                            style = MaterialTheme.typography.bodyMedium,
+                            text = "Cards come from the Pocketful catalog, a set at a time as each is " +
+                                "reviewed and published. Prices are TCGplayer's market price, updated " +
+                                "nightly, for every printing linked to a TCGplayer product; one with no " +
+                                "product shows no price rather than a guess. Your collection is written " +
+                                "to this device as you change it, and lives nowhere else -- so a backup " +
+                                "is the only copy of it that survives losing the phone.",
+                            color = Ink.TextTertiary,
+                            style = MaterialTheme.typography.bodySmall,
                         )
-                        Spacer(Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            AppOutlineButton("Cancel", { confirmingReset = false }, Modifier.weight(1f))
-                            AppButton(
-                                label = "Delete all",
-                                onClick = {
-                                    confirmingReset = false
-                                    onReset()
-                                },
-                                modifier = Modifier.weight(1f),
-                                tone = ButtonTone.Danger,
+                    }
+                }
+
+                // ----------------------------------------------------- the last resort
+                //
+                // At the very bottom, behind a scroll, behind a confirmation. Nothing else
+                // on this screen can lose data, and this one can lose all of it.
+
+                item {
+                    SectionHeader("Danger zone", Modifier.padding(top = Space.xl), icon = AppIcons.Trash)
+                }
+                item {
+                    Panel {
+                        if (confirmingReset) {
+                            Note(
+                                "This deletes every binder, box and card in the app and leaves you " +
+                                    "with an empty collection. There is no undo.",
+                                error = true,
+                            )
+                            Spacer(Modifier.height(Space.md))
+                            Row(horizontalArrangement = Arrangement.spacedBy(Space.md)) {
+                                AppOutlineButton("Cancel", { confirmingReset = false }, Modifier.weight(1f))
+                                AppButton(
+                                    label = "Delete all",
+                                    onClick = {
+                                        confirmingReset = false
+                                        onReset()
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    tone = ButtonTone.Danger,
+                                    icon = AppIcons.Trash,
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = "Export a backup first if there is anything here you would " +
+                                    "miss. Starting over cannot be undone.",
+                                color = Ink.TextTertiary,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Spacer(Modifier.height(Space.md))
+                            AppOutlineButton(
+                                label = "Delete everything and start over",
+                                onClick = { confirmingReset = true },
+                                modifier = Modifier.fillMaxWidth(),
                                 icon = AppIcons.Trash,
                             )
                         }
-                    } else {
-                        AppOutlineButton(
-                            label = "Delete everything and start over",
-                            onClick = { confirmingReset = true },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
                     }
-                }
-            }
-
-            item { SectionHeader("Backup") }
-            item {
-                Panel {
-                    val pending = transfer.pending
-                    if (pending != null) {
-                        // What is in the file, before the button that acts on it. The
-                        // counts are the question: "replace everything" is unanswerable,
-                        // "replace everything with 4 binders and 312 cards" is not.
-                        Text(
-                            text = "${pending.fileName} holds " +
-                                listOfNotNull(
-                                    plural(pending.binders, "binder"),
-                                    plural(pending.containers, "container"),
-                                    plural(pending.cards, "card"),
-                                ).joinToString(", ") + ".",
-                            color = Ink.TextPrimary,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = "Importing replaces every binder, box and card in the app " +
-                                "with what is in this file. There is no undo, so export " +
-                                "what you have first if you want to keep it.",
-                            color = Ink.TextSecondary,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            AppOutlineButton("Cancel", { transfer.dismiss() }, Modifier.weight(1f))
-                            AppButton(
-                                label = "Replace",
-                                onClick = onImportApply,
-                                modifier = Modifier.weight(1f),
-                                tone = ButtonTone.Danger,
-                                icon = AppIcons.Download,
-                            )
-                        }
-                    } else {
-                        Text(
-                            text = "A backup is one file holding your binders, boxes and cards, " +
-                                "and the catalog entries they need to be readable on a phone " +
-                                "that has never seen them.",
-                            color = Ink.TextSecondary,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            AppOutlineButton(
-                                label = "Export",
-                                onClick = onExport,
-                                modifier = Modifier.weight(1f),
-                                enabled = !transfer.busy && hasSomethingToExport,
-                            )
-                            AppOutlineButton(
-                                label = "Import",
-                                onClick = onImportChoose,
-                                modifier = Modifier.weight(1f),
-                                enabled = !transfer.busy,
-                            )
-                        }
-                    }
-
-                    when (val status = transfer.status) {
-                        CollectionTransfer.Status.Idle -> Unit
-                        is CollectionTransfer.Status.Done -> {
-                            Spacer(Modifier.height(12.dp))
-                            Text(status.message, color = Ink.TextSecondary, style = MaterialTheme.typography.bodySmall)
-                        }
-                        is CollectionTransfer.Status.Problem -> {
-                            Spacer(Modifier.height(12.dp))
-                            Text(status.message, color = Ink.Loss, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-            }
-
-            item { SectionHeader("Updates") }
-            item { UpdatePanel() }
-
-            item { SectionHeader("About") }
-            item {
-                Panel {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        // Read from the generated AppVersion rather than typed here, so
-                        // the number on this row is the number the updater compares
-                        // against a release tag and cannot drift from it.
-                        DetailRow("Pocketful", AppVersion.label)
-                        DetailRow(
-                            label = "Price data",
-                            value = if (priced > 0) "TCGplayer" else "none yet",
-                            caption = if (priced > 0) "market price, updated nightly" else null,
-                        )
-                        DetailRow("Storage", "on this device")
-                    }
-                    Spacer(Modifier.height(14.dp))
-                    Text(
-                        text = "Cards come from the Pocketful catalog, a set at a time as each is " +
-                            "reviewed and published. Prices are TCGplayer's market price, updated " +
-                            "nightly, for every printing linked to a TCGplayer product; one with no " +
-                            "product shows no price rather than a guess. Your collection is written to this device as you " +
-                            "change it, and lives nowhere else -- so a backup is the only copy of it " +
-                            "that survives losing the phone.",
-                        color = Ink.TextTertiary,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
                 }
             }
         }
@@ -405,15 +449,15 @@ private fun SettingToggle(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+        Modifier.fillMaxWidth().padding(horizontal = Space.md, vertical = Space.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, color = Ink.TextPrimary, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(3.dp))
+            Text(title, color = Ink.TextPrimary, style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(Space.xxs))
             Text(description, color = Ink.TextTertiary, style = MaterialTheme.typography.bodySmall)
         }
-        Spacer(Modifier.width(14.dp))
+        Spacer(Modifier.width(Space.md))
         ToggleSwitch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
@@ -473,9 +517,9 @@ private fun startSync(
 /**
  * "3 binders", or nothing at all when there are none.
  *
- * Returns null rather than "0 binders" so a caller can drop the empty categories from a
- * list instead of reciting them: a backup of loose cards should say "312 cards", not
- * "0 binders, 0 containers, 312 cards".
+ * Returns null rather than "0 binders" so a caller can drop the empty categories from a list
+ * instead of reciting them: a backup of loose cards should say "312 cards", not "0 binders,
+ * 0 containers, 312 cards".
  */
 private fun plural(count: Int, noun: String): String? = when (count) {
     0 -> null

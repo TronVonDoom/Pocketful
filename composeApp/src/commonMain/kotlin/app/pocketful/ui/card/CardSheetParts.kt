@@ -117,9 +117,10 @@ fun VariationsSection(
                     )
                     Spacer(Modifier.height(2.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        val priceLabel = option.marketValue.displayOrDash(option.currency)
                         Text(
-                            text = option.marketValue.displayOrDash(option.currency),
-                            color = Ink.Gold,
+                            text = priceLabel,
+                            color = app.pocketful.ui.components.moneyInk(priceLabel),
                             style = MaterialTheme.typography.labelLarge,
                             maxLines = 1,
                         )

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -40,6 +41,9 @@ import app.pocketful.domain.PokemonType
 import app.pocketful.ui.theme.AppIcons
 import app.pocketful.ui.theme.AppShape
 import app.pocketful.ui.theme.Ink
+import app.pocketful.ui.theme.Motion
+import app.pocketful.ui.theme.Size
+import app.pocketful.ui.theme.Space
 
 /**
  * A card, as a tile, with the art at the size it was drawn to be looked at.
@@ -106,6 +110,7 @@ fun CardArtTile(
 ) {
     val outline by animateColorAsState(
         targetValue = if (selected) Ink.Accent else Ink.OutlineFaint,
+        animationSpec = Motion.fast(),
         label = "cardTileOutline",
     )
 
@@ -116,7 +121,7 @@ fun CardArtTile(
             .border(if (selected) 2.dp else 1.dp, outline, AppShape.Card)
             .alpha(if (enabled) 1f else 0.5f)
             .tappable(enabled = enabled, pressScale = 0.975f, onLongClick = onLongClick, onClick = onClick)
-            .padding(8.dp),
+            .padding(Space.sm),
     ) {
         BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(CARD_ASPECT_RATIO)) {
             val shape = cardShape(maxWidth)
@@ -236,7 +241,7 @@ fun CardArtTile(
             }
         }
 
-        Spacer(Modifier.height(9.dp))
+        Spacer(Modifier.height(Space.sm + 2.dp))
         Text(
             text = name,
             color = Ink.TextPrimary,
@@ -244,7 +249,7 @@ fun CardArtTile(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(Space.xxs))
         Text(
             text = caption,
             color = Ink.TextTertiary,
@@ -396,6 +401,210 @@ private fun TileMark(modifier: Modifier = Modifier, content: @Composable () -> U
     )
 }
 
+// ---------------------------------------------------------------------- rows
+
+/**
+ * A card as a full-width row: art, identity, figure.
+ *
+ * The counterpart to [CardArtTile], for the two places a grid is the wrong shape. Search
+ * results are one -- you are reading names against what you typed, and a name is a line of
+ * text, so a list reads faster than a grid of pictures whose captions you have to hunt for.
+ * The list view of a collection is the other, where the point is to compare figures down a
+ * column rather than to recognise illustrations.
+ *
+ * The thumbnail is deliberately generous. A 38dp stamp beside three strings was the old
+ * row's failure: it spent the whole width of a phone and still could not answer "is that
+ * the one", which is the question a picture is there to answer at all.
+ */
+@Composable
+fun CardResultRow(
+    name: String,
+    caption: String,
+    art: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    back: String? = null,
+    type: PokemonType? = null,
+    holo: Boolean = false,
+    value: String? = null,
+    valueColor: Color = Ink.Gold,
+    trend: String? = null,
+    badge: String? = null,
+    badgeColor: Color = Ink.TextSecondary,
+    count: Int? = null,
+    ghosted: Boolean = false,
+    selected: Boolean = false,
+    enabled: Boolean = true,
+    onLongClick: (() -> Unit)? = null,
+    onQuickAdd: (() -> Unit)? = null,
+) {
+    val outline by animateColorAsState(
+        targetValue = if (selected) Ink.Accent else Ink.OutlineFaint,
+        animationSpec = Motion.fast(),
+        label = "rowOutline",
+    )
+
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(AppShape.Medium)
+            .background(if (selected) Ink.Accent.copy(alpha = 0.10f) else Ink.Surface)
+            .border(if (selected) 2.dp else 1.dp, outline, AppShape.Medium)
+            .alpha(if (enabled) 1f else 0.5f)
+            .tappable(enabled = enabled, pressScale = 0.985f, onLongClick = onLongClick, onClick = onClick)
+            .padding(Space.sm + 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.width(46.dp)) {
+            BoxWithConstraints(Modifier.fillMaxWidth().aspectRatio(CARD_ASPECT_RATIO)) {
+                val shape = cardShape(maxWidth)
+                Box(Modifier.fillMaxSize().clip(shape)) {
+                    CardArtwork(
+                        art = art,
+                        back = back,
+                        type = type,
+                        modifier = Modifier.fillMaxSize().alpha(if (ghosted) 0.4f else 1f),
+                        holo = holo && !ghosted,
+                    )
+                    Box(Modifier.fillMaxSize().border(1.dp, Color.White.copy(alpha = 0.11f), shape))
+                }
+            }
+        }
+
+        Spacer(Modifier.width(Space.md))
+
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = name,
+                    color = Ink.TextPrimary,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                // The quantity rides with the name rather than in a corner, because in a row
+                // there is no corner -- and "Charizard x3" is how anyone would say it aloud.
+                if ((count ?: 0) > 1) {
+                    Spacer(Modifier.width(Space.sm))
+                    Text(
+                        text = "×$count",
+                        color = Ink.TextSecondary,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                    )
+                }
+            }
+            Spacer(Modifier.height(Space.xxs))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = caption,
+                    color = Ink.TextTertiary,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (badge != null) {
+                    Spacer(Modifier.width(Space.sm))
+                    Tag(badge, color = badgeColor, background = badgeColor.copy(alpha = 0.16f))
+                }
+            }
+        }
+
+        Spacer(Modifier.width(Space.md))
+
+        // Value and its move, right-aligned in their own column, so figures line up down the
+        // list. That column is the whole reason a list view exists.
+        if (value != null || trend != null) {
+            Column(horizontalAlignment = Alignment.End) {
+                value?.let {
+                    Text(
+                        text = it,
+                        color = valueColor,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                    )
+                }
+                trend?.let {
+                    Spacer(Modifier.height(Space.xxs))
+                    Text(
+                        text = it,
+                        color = if (it.startsWith("▲")) Ink.Gain else Ink.Loss,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+
+        if (onQuickAdd != null) {
+            Spacer(Modifier.width(Space.md))
+            Box(
+                Modifier
+                    .size(Size.control - 4.dp)
+                    .clip(AppShape.Pill)
+                    .background(Ink.Accent.copy(alpha = 0.16f))
+                    .border(1.dp, Ink.Accent.copy(alpha = 0.35f), AppShape.Pill)
+                    .tappable(enabled = enabled, pressScale = 0.85f, onClick = onQuickAdd),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(AppIcons.Plus, "Add one", Modifier.size(Size.iconSm), tint = Ink.Accent)
+            }
+        }
+
+        if (selected) {
+            Spacer(Modifier.width(Space.md))
+            Box(
+                Modifier.size(22.dp).clip(AppShape.Pill).background(Ink.Accent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(AppIcons.Check, "Selected", Modifier.size(Size.iconXs), tint = Color.White)
+            }
+        }
+    }
+}
+
+/** A card already in the catalog, as a row. */
+@Composable
+fun CardRowItem(
+    brief: CardBrief,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    caption: String = "${brief.setName} · ${brief.collectorNumber}",
+    value: String? = null,
+    valueColor: Color = Ink.Gold,
+    trend: String? = null,
+    badge: String? = null,
+    badgeColor: Color = Ink.TextSecondary,
+    count: Int? = null,
+    ghosted: Boolean = false,
+    selected: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
+    onQuickAdd: (() -> Unit)? = null,
+) {
+    CardResultRow(
+        name = brief.name,
+        caption = caption,
+        art = brief.art,
+        back = brief.back,
+        type = brief.type,
+        holo = brief.finish != Finish.NON_HOLO,
+        value = value,
+        valueColor = valueColor,
+        trend = trend,
+        badge = badge,
+        badgeColor = badgeColor,
+        count = count,
+        ghosted = ghosted,
+        selected = selected,
+        onLongClick = onLongClick,
+        onQuickAdd = onQuickAdd,
+        onClick = onClick,
+        modifier = modifier,
+    )
+}
+
 // --------------------------------------------------------------------- grids
 
 /**
@@ -435,7 +644,7 @@ fun <T> TileRow(
     modifier: Modifier = Modifier,
     content: @Composable RowScope.(T) -> Unit,
 ) {
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.md)) {
         items.chunked(2).forEach { pair ->
             TilePair {
                 pair.forEach { entry -> content(entry) }

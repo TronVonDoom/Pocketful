@@ -357,6 +357,242 @@ object AppIcons {
             lineTo(10.5f, 19f)
         }
     }
+
+    // ------------------------------------------------------------ the new set
+    //
+    // Added for the rebuilt navigation and the controls that came with it. Same 24x24
+    // viewport and 1.9 stroke as everything above, so they sit in a row together without
+    // one of them looking heavier than its neighbours.
+
+    /**
+     * Settings.
+     *
+     * An alias for [Settings] rather than a cog of its own. A cog wants a toothed ring to
+     * read as a cog, and a toothed ring drawn in 1.9 strokes at 16dp collapses into a
+     * circle with spikes -- which on a first build of this rebuild was mistaken for a
+     * brightness control, because that is exactly what a spiked circle means everywhere
+     * else. The bank of sliders has meant "preferences" for as long and does not blur.
+     */
+    val Gear: ImageVector get() = Settings
+
+    /** Narrowing a list: a funnel, which is the one glyph nobody misreads. */
+    val Filter: ImageVector by lazy {
+        strokeIcon("filter") {
+            moveTo(3.5f, 5f)
+            horizontalLineTo(20.5f)
+            lineTo(14f, 12.6f)
+            verticalLineTo(19.5f)
+            lineTo(10f, 21f)
+            verticalLineTo(12.6f)
+            close()
+        }
+    }
+
+    /** Reordering a list: two stacks with arrows, one up and one down. */
+    val Sort: ImageVector by lazy {
+        strokeIcon("sort") {
+            moveTo(7f, 4.5f)
+            verticalLineTo(19.5f)
+            moveTo(3.8f, 8f)
+            lineTo(7f, 4.5f)
+            lineTo(10.2f, 8f)
+            moveTo(17f, 19.5f)
+            verticalLineTo(4.5f)
+            moveTo(13.8f, 16f)
+            lineTo(17f, 19.5f)
+            lineTo(20.2f, 16f)
+        }
+    }
+
+    /** Tiles. Half of the pair that switches how a collection is laid out. */
+    val Grid: ImageVector by lazy {
+        strokeIcon("grid") {
+            moveTo(4f, 4f)
+            horizontalLineTo(10.5f)
+            verticalLineTo(10.5f)
+            horizontalLineTo(4f)
+            close()
+            moveTo(13.5f, 4f)
+            horizontalLineTo(20f)
+            verticalLineTo(10.5f)
+            horizontalLineTo(13.5f)
+            close()
+            moveTo(4f, 13.5f)
+            horizontalLineTo(10.5f)
+            verticalLineTo(20f)
+            horizontalLineTo(4f)
+            close()
+            moveTo(13.5f, 13.5f)
+            horizontalLineTo(20f)
+            verticalLineTo(20f)
+            horizontalLineTo(13.5f)
+            close()
+        }
+    }
+
+    /**
+     * Rows. The other half.
+     *
+     * Bulleted rather than three plain lines. Three evenly spaced horizontal rules in the
+     * corner of a screen is a hamburger, and a hamburger means "menu" to everyone who has
+     * ever used a phone -- so as a view toggle it was an invitation to tap expecting a menu
+     * and get a relayout instead. The leading marks make it a list.
+     */
+    val Rows: ImageVector by lazy {
+        strokeIcon("rows") {
+            moveTo(4f, 6.5f)
+            horizontalLineTo(4.6f)
+            moveTo(8.5f, 6.5f)
+            horizontalLineTo(20f)
+            moveTo(4f, 12f)
+            horizontalLineTo(4.6f)
+            moveTo(8.5f, 12f)
+            horizontalLineTo(20f)
+            moveTo(4f, 17.5f)
+            horizontalLineTo(4.6f)
+            moveTo(8.5f, 17.5f)
+            horizontalLineTo(20f)
+        }
+    }
+
+    /** A figure that went up. Used beside a price, never on its own. */
+    val ArrowUp: ImageVector by lazy {
+        strokeIcon("arrowUp") {
+            moveTo(12f, 20f)
+            verticalLineTo(4.5f)
+            moveTo(5.5f, 11f)
+            lineTo(12f, 4.5f)
+            lineTo(18.5f, 11f)
+        }
+    }
+
+    /** A figure that went down. */
+    val ArrowDown: ImageVector by lazy {
+        strokeIcon("arrowDown") {
+            moveTo(12f, 4f)
+            verticalLineTo(19.5f)
+            moveTo(5.5f, 13f)
+            lineTo(12f, 19.5f)
+            lineTo(18.5f, 13f)
+        }
+    }
+
+    val ChevronDown: ImageVector by lazy {
+        strokeIcon("chevronDown") {
+            moveTo(5f, 9f)
+            lineTo(12f, 16f)
+            lineTo(19f, 9f)
+        }
+    }
+
+    val ChevronUp: ImageVector by lazy {
+        strokeIcon("chevronUp") {
+            moveTo(5f, 15f)
+            lineTo(12f, 8f)
+            lineTo(19f, 15f)
+        }
+    }
+
+    /** More of something than fits. Three dots, laid out flat. */
+    val More: ImageVector by lazy {
+        strokeIcon("more") {
+            circle(5.5f, 12f, 1.3f)
+            circle(12f, 12f, 1.3f)
+            circle(18.5f, 12f, 1.3f)
+        }
+    }
+
+    /** Recently, as opposed to now. Heads the "jump back in" shelf. */
+    val Clock: ImageVector by lazy {
+        strokeIcon("clock") {
+            circle(12f, 12f, 8.8f)
+            moveTo(12f, 6.8f)
+            verticalLineTo(12f)
+            horizontalLineTo(16.2f)
+        }
+    }
+
+    /** A price tag. Heads anything about what a card is worth rather than what it is. */
+    val Tag: ImageVector by lazy {
+        strokeIcon("tag") {
+            moveTo(11.2f, 3.2f)
+            horizontalLineTo(20f)
+            verticalLineTo(12f)
+            lineTo(11.6f, 20.4f)
+            arcToRelative(1.8f, 1.8f, 0f, false, true, -2.6f, 0f)
+            lineTo(3.2f, 14.6f)
+            arcToRelative(1.8f, 1.8f, 0f, false, true, 0f, -2.6f)
+            close()
+            circle(16f, 7.2f, 1.4f)
+        }
+    }
+
+    /** Something moving fast: today's biggest price changes. */
+    val Bolt: ImageVector by lazy {
+        strokeIcon("bolt") {
+            moveTo(13.4f, 2.5f)
+            lineTo(4.5f, 13.6f)
+            horizontalLineTo(11f)
+            lineTo(10.6f, 21.5f)
+            lineTo(19.5f, 10.4f)
+            horizontalLineTo(13f)
+            close()
+        }
+    }
+
+    /** An explanation, not a warning. */
+    val Info: ImageVector by lazy {
+        strokeIcon("info") {
+            circle(12f, 12f, 8.8f)
+            moveTo(12f, 11f)
+            verticalLineTo(16.5f)
+            moveTo(12f, 7.6f)
+            verticalLineTo(8.2f)
+        }
+    }
+
+    /** Fetch it again. Two arrows chasing each other round a circle. */
+    val Refresh: ImageVector by lazy {
+        strokeIcon("refresh") {
+            moveTo(20f, 12f)
+            arcTo(8f, 8f, 0f, true, true, 17.6f, 6.4f)
+            moveTo(20.5f, 3.5f)
+            verticalLineTo(9f)
+            horizontalLineTo(15f)
+        }
+    }
+
+    /** What the collection is worth: a folded note, not a coin. */
+    val Wallet: ImageVector by lazy {
+        strokeIcon("wallet") {
+            moveTo(3.5f, 7.5f)
+            arcTo(2f, 2f, 0f, false, true, 5.5f, 5.5f)
+            horizontalLineTo(17f)
+            verticalLineTo(8.5f)
+            moveTo(3.5f, 7.5f)
+            verticalLineTo(18f)
+            arcTo(2f, 2f, 0f, false, false, 5.5f, 20f)
+            horizontalLineTo(18.5f)
+            arcTo(2f, 2f, 0f, false, false, 20.5f, 18f)
+            verticalLineTo(10.5f)
+            arcTo(2f, 2f, 0f, false, false, 18.5f, 8.5f)
+            horizontalLineTo(3.5f)
+            moveTo(16.5f, 14.2f)
+            horizontalLineTo(16.6f)
+        }
+    }
+
+    /** Saved for later. Used for the set a binder was built from. */
+    val Bookmark: ImageVector by lazy {
+        strokeIcon("bookmark") {
+            moveTo(6f, 3.5f)
+            horizontalLineTo(18f)
+            verticalLineTo(20.5f)
+            lineTo(12f, 16f)
+            lineTo(6f, 20.5f)
+            close()
+        }
+    }
 }
 
 /** Appends a full circle as its own subpath, built from two half arcs. */
