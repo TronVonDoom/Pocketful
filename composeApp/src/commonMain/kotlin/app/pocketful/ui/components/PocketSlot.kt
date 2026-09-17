@@ -269,6 +269,16 @@ private fun BrokenPocket(view: SlotView.Broken, shape: Shape) {
 
 @Composable
 private fun FilledPocket(view: SlotView.CardSlot, shape: Shape) {
+    val settings = LocalAppSettings.current
+    // Computed once, and passed to the shared pill as a plain string rather than letting it
+    // read the setting itself -- "prices in pockets" is a preference about this screen, and a
+    // shared component read by tiles elsewhere in the app must not quietly inherit it.
+    val priceText = if (settings.showPocketPrices && !view.value.isZero) {
+        view.value.display(view.currency)
+    } else {
+        null
+    }
+
     Box(Modifier.fillMaxSize()) {
         CardArtwork(
             art = view.image,
@@ -327,11 +337,23 @@ private fun FilledPocket(view: SlotView.CardSlot, shape: Shape) {
                     // Same pill as a card with art wears, in the same corner. The scrim
                     // is already doing the contrast work here, so it arrives without its
                     // own ground rather than as a darker patch on a dark strip.
-                    PocketStatusPill(view, grounded = false)
+                    CardStatusPill(
+                        forTrade = view.forTrade,
+                        holo = view.isHolo,
+                        holoLabel = view.finish.label,
+                        price = priceText,
+                        grounded = false,
+                    )
                 }
             }
         } else {
-            PocketStatusPill(view, modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp))
+            CardStatusPill(
+                forTrade = view.forTrade,
+                holo = view.isHolo,
+                holoLabel = view.finish.label,
+                price = priceText,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
+            )
         }
 
         view.gradeLabel?.let { grade ->
@@ -445,65 +467,6 @@ private fun DashedBorder(color: Color, corner: Dp) {
                 ),
             ),
         )
-    }
-}
-
-/**
- * What a pocket says about the copy in it, in one object in the bottom corner.
- *
- * Three facts that used to have nowhere to live -- is it foil, is it on the table, what is
- * it worth -- and giving each its own corner chip would have put four chips on a card the
- * size of a stamp. Grouped instead: they are all answers to "what is this copy", as
- * opposed to the grade and condition marks up top, which are answers to "what state is it
- * in". Each piece appears only when it has something to say, so a plain near-mint card you
- * are keeping still wears nothing but its price, and a card with nothing to report wears
- * nothing at all.
- *
- * [grounded] is false where a caption scrim is already behind it -- a second dark patch on
- * an already-dark strip reads as a rendering fault rather than as a pill.
- */
-@Composable
-private fun PocketStatusPill(
-    view: SlotView.CardSlot,
-    modifier: Modifier = Modifier,
-    grounded: Boolean = true,
-) {
-    val settings = LocalAppSettings.current
-    val showPrice = settings.showPocketPrices && !view.value.isZero
-    if (!view.forTrade && !view.isHolo && !showPrice) return
-
-    // Tight vertically, generous horizontally. The pill sits over the bottom edge of the
-    // artwork, so every dp of its height is a dp of a card it is covering -- while its
-    // width costs nothing, the corner it occupies being the card's own margin. Which is
-    // also why the marks inside can be bigger than the pill got shorter: the constraint
-    // was never how much room they needed, it was how much card the box around them ate.
-    Row(
-        modifier
-            .clip(AppShape.Pill)
-            .background(if (grounded) Color.Black.copy(alpha = 0.72f) else Color.Transparent)
-            .padding(horizontal = if (grounded) 5.dp else 0.dp, vertical = 0.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (view.forTrade) {
-            Icon(AppIcons.Trade, "Up for trade", Modifier.size(11.dp), tint = Ink.Gain)
-        }
-        if (view.isHolo) {
-            Icon(AppIcons.Sparkle, view.finish.label, Modifier.size(11.dp), tint = Ink.Foil)
-        }
-        if (showPrice) {
-            Text(
-                text = view.value.display(view.currency),
-                color = Ink.Gold,
-                fontSize = 10.sp,
-                // The line box, not the glyphs. Left at its default the text carried
-                // four dp of leading the icons beside it did not have, and that padding
-                // was most of the pill's height.
-                lineHeight = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-            )
-        }
     }
 }
 

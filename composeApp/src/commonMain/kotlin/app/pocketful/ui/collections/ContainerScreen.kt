@@ -150,6 +150,7 @@ fun ContainerScreen(
                         brief = row.brief,
                         value = row.value.displayOrNull(),
                         valueColor = Ink.Gold,
+                        forTrade = row.copy.forTrade,
                         badge = row.copy.grade?.label ?: row.copy.condition.short.takeIf { it != "NM" },
                         badgeColor = if (row.copy.grade != null) Ink.Gold else Ink.TextTertiary,
                         selected = row.copy.id in selection,

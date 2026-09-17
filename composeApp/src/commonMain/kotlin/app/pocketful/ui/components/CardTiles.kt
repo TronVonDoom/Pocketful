@@ -97,11 +97,13 @@ fun CardArtTile(
     /** Renders the art as a ghost: a card the user does not own yet. */
     ghosted: Boolean = false,
     holo: Boolean = false,
+    /** What [holo] is, for the icon's content description -- "Holo", "Reverse Holo". */
+    holoLabel: String = "Foil",
+    /** Up for trade. Drawn as the same icon a binder pocket wears, in the same pill. */
+    forTrade: Boolean = false,
     selected: Boolean = false,
     enabled: Boolean = true,
     onLongClick: (() -> Unit)? = null,
-    /** The price's daily move, as [trendChip] writes it: "▲3%". Drawn above the price. */
-    trend: String? = null,
     /**
      * Adds one of this card straight to wherever search is adding to, without opening
      * anything. Drawn as a plus in the bottom-left corner of the art when set.
@@ -164,12 +166,13 @@ fun CardArtTile(
 
                 when {
 
-                    // Dark plate, gold numeral -- the same treatment as the price chip
-                    // rather than a solid gold disc. Card borders are yellow more often
-                    // than they are anything else, and gold on yellow is a badge you have
-                    // to hunt for on exactly the cards a ranking is most about.
+                    // Dark plate, gold numeral, prefixed so it cannot be misread as a count
+                    // -- the same treatment as the price chip rather than a solid gold disc.
+                    // Card borders are yellow more often than they are anything else, and
+                    // gold on yellow is a badge you have to hunt for on exactly the cards a
+                    // ranking is most about.
                     rank != null -> ArtChip(
-                        text = "$rank",
+                        text = "#$rank",
                         foreground = Ink.Gold,
                         background = Color.Black.copy(alpha = 0.74f),
                         modifier = Modifier.align(Alignment.TopStart).padding(5.dp),
@@ -196,26 +199,17 @@ fun CardArtTile(
                     )
                 }
 
-                Column(
-                    Modifier.align(Alignment.BottomEnd).padding(5.dp),
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
-                    trend?.let {
-                        ArtChip(
-                            text = it,
-                            foreground = if (it.startsWith("▲")) Ink.Gain else Ink.Loss,
-                            background = Color.Black.copy(alpha = 0.74f),
-                        )
-                    }
-                    value?.let {
-                        ArtChip(
-                            text = it,
-                            foreground = valueColor,
-                            background = Color.Black.copy(alpha = 0.74f),
-                        )
-                    }
-                }
+                // Foil, for trade, worth -- the same single pill a binder pocket wears in
+                // the same corner, so a card looks like the same object whether it is found
+                // on a shelf of tiles or turned to on a page.
+                CardStatusPill(
+                    forTrade = forTrade,
+                    holo = holo && !ghosted,
+                    holoLabel = holoLabel,
+                    price = value,
+                    priceColor = valueColor,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp),
+                )
 
                 if (onQuickAdd != null && !selected) {
                     Box(
@@ -274,9 +268,9 @@ fun CardTile(
     count: Int? = null,
     rank: Int? = null,
     ghosted: Boolean = false,
+    forTrade: Boolean = false,
     selected: Boolean = false,
     onLongClick: (() -> Unit)? = null,
-    trend: String? = null,
     onQuickAdd: (() -> Unit)? = null,
 ) {
     CardArtTile(
@@ -293,9 +287,10 @@ fun CardTile(
         rank = rank,
         ghosted = ghosted,
         holo = brief.finish != Finish.NON_HOLO,
+        holoLabel = brief.finish.label,
+        forTrade = forTrade,
         selected = selected,
         onLongClick = onLongClick,
-        trend = trend,
         onQuickAdd = onQuickAdd,
         onClick = onClick,
         modifier = modifier,
@@ -361,17 +356,81 @@ private fun ArtChip(
 }
 
 /**
+ * What a card carries beyond its own art: is it foil, is it on the table, what is it worth.
+ *
+ * The one piece of chrome shared between a binder pocket and a card tile, because the two are
+ * answering the same question about the same kind of object -- "what is this copy" -- and a
+ * card that wore a different costume depending on which screen happened to be showing it
+ * would read as two apps stitched together rather than one. Each piece appears only when it
+ * has something to say, so a plain near-mint card you are keeping wears nothing but its
+ * price, and a card with nothing to report wears nothing at all.
+ *
+ * [grounded] is false where a caption scrim is already behind it -- a second dark patch on
+ * an already-dark strip reads as a rendering fault rather than as a pill. See [PocketSlot]'s
+ * own use of this for the case that started it.
+ */
+@Composable
+fun CardStatusPill(
+    modifier: Modifier = Modifier,
+    forTrade: Boolean = false,
+    holo: Boolean = false,
+    holoLabel: String = "Foil",
+    price: String? = null,
+    priceColor: Color = Ink.Gold,
+    grounded: Boolean = true,
+) {
+    if (!forTrade && !holo && price == null) return
+
+    // Tight vertically, generous horizontally. The pill sits over the bottom edge of the
+    // artwork, so every dp of its height is a dp of a card it is covering -- while its width
+    // costs nothing, the corner it occupies being the card's own margin.
+    Row(
+        modifier
+            .clip(AppShape.Pill)
+            .background(if (grounded) Color.Black.copy(alpha = 0.72f) else Color.Transparent)
+            .padding(horizontal = if (grounded) 5.dp else 0.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (forTrade) {
+            Icon(AppIcons.Trade, "Up for trade", Modifier.size(11.dp), tint = Ink.Gain)
+        }
+        if (holo) {
+            Icon(AppIcons.Sparkle, holoLabel, Modifier.size(11.dp), tint = Ink.Foil)
+        }
+        if (price != null) {
+            Text(
+                text = price,
+                color = priceColor,
+                fontSize = 10.sp,
+                // The line box, not the glyphs. Left at its default the text carried four dp
+                // of leading the icons beside it did not have, and that padding was most of
+                // the pill's height.
+                lineHeight = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/**
  * A quantity, as a disc.
  *
+ * Written "×4" rather than a bare "4". The rank chip in the opposite corner is also a bare
+ * number, and a tile that could carry both at once -- your second most valuable card, of
+ * which you own four -- needs the two to be unmistakable at a glance rather than each other's
+ * near-twin. "×" is the one glyph that only ever means multiplication.
+ *
  * Round at one digit and stretching to a pill at two or more, which is the whole of the
- * shape rule: a circle is the right frame for a single glyph and the wrong one for three,
+ * shape rule: a circle is the right frame for a short glyph and the wrong one for three,
  * so the minimum size holds the circle and the padding takes over once the text outgrows
  * it. Same treatment as the price chip -- dark plate, no colour of its own -- because a
  * count is a fact about the card rather than a status worth a hue.
  */
 @Composable
 private fun CountBadge(count: Int, modifier: Modifier = Modifier) {
-    val text = if (count > 99) "99+" else "$count"
+    val text = if (count > 99) "×99+" else "×$count"
     Box(
         modifier
             .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)

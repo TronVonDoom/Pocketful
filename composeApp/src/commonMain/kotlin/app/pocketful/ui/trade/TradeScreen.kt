@@ -171,10 +171,14 @@ fun TradeScreen(
                         CardTile(
                             brief = row.brief,
                             caption = row.locationLabel,
+                            // Gold, the same as everywhere else a price is shown -- the icon
+                            // in the pill beside it is what says this one is on the table,
+                            // the same as a binder pocket never tints its own price green.
                             value = row.value.displayOrNull(),
-                            valueColor = Ink.Gain,
+                            valueColor = Ink.Gold,
+                            forTrade = true,
                             badge = row.copy.grade?.label ?: row.copy.condition.short,
-                            badgeColor = Ink.Gain,
+                            badgeColor = if (row.copy.grade != null) Ink.Gold else Ink.TextTertiary,
                             onClick = { onOpenCopy(row) },
                             modifier = Modifier.weight(1f),
                         )

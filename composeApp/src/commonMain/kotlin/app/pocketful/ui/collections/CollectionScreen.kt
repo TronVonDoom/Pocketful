@@ -687,13 +687,9 @@ private fun LazyListScope.cardList(
                 caption = "${row.brief.collectorNumber} · ${row.locationLabel}",
                 value = row.value.displayOrNull(),
                 valueColor = Ink.Gold,
-                trend = trendChip(row.brief.change, row.brief.marketValue),
-                badge = if (row.copy.forTrade) {
-                    "TRADE"
-                } else {
-                    row.copy.grade?.label ?: row.copy.condition.short.takeIf { it != "NM" }
-                },
-                badgeColor = if (row.copy.forTrade) Ink.Gain else Ink.TextTertiary,
+                forTrade = row.copy.forTrade,
+                badge = row.copy.grade?.label ?: row.copy.condition.short.takeIf { it != "NM" },
+                badgeColor = if (row.copy.grade != null) Ink.Gold else Ink.TextTertiary,
                 selected = row.copy.id in selection,
                 onClick = {
                     if (selection.isEmpty()) onOpen(row)

@@ -73,7 +73,6 @@ import app.pocketful.ui.components.TopBar
 import app.pocketful.ui.components.percentText
 import app.pocketful.ui.components.tappable
 import app.pocketful.ui.components.tileRows
-import app.pocketful.ui.components.trendChip
 import app.pocketful.ui.nav.islandBottomInset
 import app.pocketful.ui.theme.AppIcons
 import app.pocketful.ui.theme.AppShape
@@ -142,11 +141,17 @@ fun HomeScreen(
     val unfiled = remember(snapshot) { snapshot.unfiledCopies().size }
     val copies = remember(snapshot) { snapshot.copyRows() }
 
-    // Carried with their positions rather than looked up later. Ranking by index-of would
-    // compare rows by value, and two identical spares of the same card would both be
-    // numbered whichever of them came first.
+    // Grouped by printing before they are ranked, not after. Four identical Pikachus used to
+    // fill four of the six slots here, each wearing its own rank number -- which at a glance
+    // read as a quantity ("2, 3, 4, 5") rather than the position it actually was, and crowded
+    // out cards that were genuinely different. One entry per card you own, worth what all of
+    // your copies of it add up to, with its own count when there is more than one.
     val topCards = remember(copies) {
-        copies.sortedByDescending { it.value.cents }.take(6).mapIndexed { index, row -> index + 1 to row }
+        copies.groupBy { it.brief.variantId }
+            .map { (_, rows) -> ValueEntry(rows) }
+            .sortedByDescending { it.totalValue.cents }
+            .take(6)
+            .mapIndexed { index, entry -> index + 1 to entry }
     }
     val movers = remember(snapshot, copies) { moversOf(snapshot, copies) }
     val trades = remember(snapshot) { snapshot.tradeRows() }
@@ -466,10 +471,16 @@ fun HomeScreen(
                                     CardTile(
                                         brief = row.brief,
                                         caption = row.locationLabel,
+                                        // Gold, not green -- the same rule a binder pocket
+                                        // follows. A price is a price regardless of status;
+                                        // it is the icon in the pill beside it that says
+                                        // this one is on the table.
                                         value = row.value.displayOrNull(row.brief.currency),
-                                        valueColor = Ink.Gain,
-                                        badge = "TRADE",
-                                        badgeColor = Ink.Gain,
+                                        valueColor = Ink.Gold,
+                                        forTrade = true,
+                                        badge = row.copy.grade?.label
+                                            ?: row.copy.condition.short.takeIf { it != "NM" },
+                                        badgeColor = if (row.copy.grade != null) Ink.Gold else Ink.TextTertiary,
                                         onClick = { onOpenCopy(row) },
                                         modifier = Modifier.width(tileWidth),
                                     )
@@ -489,17 +500,24 @@ fun HomeScreen(
                     // loses its order unless the order is stated, and once it is stated there
                     // is no reason to spend a full row per card to imply what the number now
                     // says outright.
-                    tileRows(items = topCards, keyPrefix = "top", key = { it.second.copy.id.value }) { entry ->
-                        val (position, row) = entry
+                    tileRows(items = topCards, keyPrefix = "top", key = { it.second.variantId.value }) { entry ->
+                        val (position, group) = entry
+                        val row = group.representative
                         CardTile(
                             brief = row.brief,
-                            caption = row.locationLabel,
-                            value = row.value.display(),
+                            caption = group.caption,
+                            value = group.totalValue.display(),
                             valueColor = Ink.Gold,
-                            trend = trendChip(row.brief.change, row.brief.marketValue),
                             rank = position,
-                            badge = row.copy.grade?.label,
+                            // A single physical copy's own count as a disc; a group's own
+                            // grade badge only when every copy in it actually carries the
+                            // same grade -- a "PSA 9" plate on a tile standing for four
+                            // mixed-condition spares would be a badge that is only true of
+                            // one of them.
+                            count = group.count.takeIf { it > 1 },
+                            badge = if (group.count == 1) row.copy.grade?.label else null,
                             badgeColor = Ink.Gold,
+                            forTrade = group.allForTrade,
                             onClick = { onOpenCopy(row) },
                             modifier = Modifier.weight(1f),
                         )
@@ -760,6 +778,34 @@ private const val TRADE_SHELF_MAX = 12
 private const val SOLD_SHOWN = 5
 
 private data class SetTally(val setName: String, val count: Int, val value: Money)
+
+/**
+ * Every copy you own of one printing, folded into a single entry for the "Most valuable"
+ * ranking.
+ *
+ * A ranking is a list of *cards*, not a list of *copies* -- "your second most valuable card"
+ * has one answer even when you own four of it. Grouping here rather than after the fact is
+ * what keeps a shelf of identical spares from crowding six genuinely different cards down to
+ * two: the group counts as one entry worth what all of its copies add up to, with its own
+ * quantity mark, rather than one entry per copy each restating the same name.
+ */
+private data class ValueEntry(val rows: List<CopyRow>) {
+    val variantId: VariantId get() = representative.brief.variantId
+    val representative: CopyRow = rows.maxByOrNull { it.value.cents } ?: rows.first()
+    val totalValue: Money = rows.fold(Money.ZERO) { acc, row -> acc + row.value }
+    val count: Int get() = rows.size
+    val allForTrade: Boolean = rows.all { it.copy.forTrade }
+
+    /** Where it is, unless "it" is actually several places -- then how many, and of what. */
+    val caption: String = when {
+        rows.size == 1 -> representative.locationLabel
+        else -> {
+            val places = rows.map { it.locationLabel }.distinct()
+            val countLabel = "${rows.size} copies"
+            if (places.size == 1) "$countLabel · ${places.first()}" else countLabel
+        }
+    }
+}
 
 /**
  * One row of the value ranking, flattened from whichever kind of storage it came from.
