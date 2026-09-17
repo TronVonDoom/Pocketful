@@ -89,18 +89,13 @@ import kotlin.math.roundToInt
  * bar at the bottom carries the sheet and side context a spread would otherwise make
  * obvious.
  *
- * Three things changed in the rebuild, all of them about the job this screen actually gets
- * used for -- working through a set binder with a stack of cards on the desk.
+ * Two things changed in the rebuild, both about the job this screen actually gets used for --
+ * working through a set binder with a stack of cards on the desk.
  *
  * **The header is a progress bar now.** A set binder is a progress bar by nature: it is
  * forty pockets and a count of how many you have found. The old header spent four cells of a
  * stat rail restating figures that the bar says in one glance, and the height it gave back
  * is height the page itself needed.
- *
- * **There is a way to the next gap.** Filling a binder means finding the next pocket that is
- * still empty or still wanted, and the only way to do that was to swipe through fourteen
- * pages looking. One control now jumps straight to it, and it is the single thing on this
- * screen that turns a chore into a loop.
  *
  * **The page overview shows pages, not numbers.** Jumping to page nine was a grid of numbered
  * chips, which asks you to remember what is on page nine. It is a grid of actual page
@@ -183,12 +178,6 @@ fun BinderPageScreen(
     }
 
     val spine = Color(binder.spineColor)
-
-    /** Turns to whichever page holds the next pocket still waiting for a card. */
-    fun jumpToNextGap() {
-        val target = binder.nextGapAfter(pagerState.currentPage) ?: return
-        scope.launch { pagerState.animateScrollToPage(target) }
-    }
 
     Box(modifier.fillMaxSize().background(Ink.Canvas)) {
         ScreenBackdropFor(spine)
@@ -390,7 +379,6 @@ fun BinderPageScreen(
                     // the only way to total one was to read sixteen pocket chips.
                     pageValue = snapshot.pageValue(binder, pagerState.currentPage)
                         .displayOrNull(summary.currency),
-                    hasGap = binder.nextGapAfter(pagerState.currentPage) != null,
                     onPrevious = {
                         val target = pagerState.currentPage - 1
                         if (target >= 0) scope.launch { pagerState.animateScrollToPage(target) }
@@ -400,7 +388,6 @@ fun BinderPageScreen(
                         if (target < binder.faceCount) scope.launch { pagerState.animateScrollToPage(target) }
                     },
                     onOverview = { overviewVisible = true },
-                    onNextGap = { jumpToNextGap() },
                 )
             }
         }
@@ -799,30 +786,6 @@ private fun CollectionSnapshot.pageValue(binder: Binder, faceIndex: Int): Money 
             .sumOf { slot -> copies[slot.copyId]?.let { valueOf(it).cents } ?: 0L },
     )
 
-/**
- * The next page holding a pocket that is still waiting for a card, wrapping round the end.
- *
- * "Waiting" is empty *or* wanted. Both are holes in the binder from the point of view of
- * someone standing at a desk with a stack of cards, and an app that skipped the wanted ones
- * would walk you past exactly the pockets you are trying to fill.
- *
- * Returns null when there is nothing to find, which is how the control that uses it knows to
- * go quiet rather than to bounce you back to where you already are.
- */
-private fun Binder.nextGapAfter(faceIndex: Int): Int? {
-    if (faceCount <= 0) return null
-    fun faceHasGap(face: Int): Boolean = this.face(face).any {
-        it is SlotContent.Empty || it is SlotContent.Wanted
-    }
-    for (step in 1..faceCount) {
-        val candidate = (faceIndex + step) % faceCount
-        if (faceHasGap(candidate)) return candidate
-    }
-    // The page you are on may be the only one with a gap left, and jumping to it is a no-op
-    // rather than a lie -- but saying so lets the control stay lit while there is still work.
-    return if (faceHasGap(faceIndex)) faceIndex else null
-}
-
 /** Adds or removes one pocket. The whole vocabulary a selection needs. */
 private fun Set<Int>.toggled(ordinal: Int): Set<Int> =
     if (ordinal in this) this - ordinal else this + ordinal
@@ -875,22 +838,17 @@ private fun CarryBanner(
 /**
  * The page control.
  *
- * Deliberately the same floating object as the navigation dock it replaces, and carrying one
- * thing the old one did not: a jump to the next pocket still waiting for a card. That control
- * is the difference between filling a binder and hunting for the place to fill it -- it is lit
- * while there is a gap anywhere and goes quiet when the binder is done, which is also the only
- * congratulation this screen offers.
+ * Deliberately the same floating object as the navigation dock it replaces -- one bar at the
+ * bottom of the screen, whatever the screen happens to be.
  */
 @Composable
 private fun PageBar(
     binder: Binder,
     faceIndex: Int,
     pageValue: String?,
-    hasGap: Boolean,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onOverview: () -> Unit,
-    onNextGap: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val location = binder.layout.locate(binder.layout.ordinalOf(faceIndex, 0, 0))
@@ -932,19 +890,6 @@ private fun PageBar(
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
             )
-        }
-
-        if (hasGap) {
-            app.pocketful.ui.components.CircleIconButton(
-                icon = AppIcons.Target,
-                contentDescription = "Jump to the next pocket still to fill",
-                onClick = onNextGap,
-                size = Size.control,
-                background = Ink.Wanted.copy(alpha = 0.18f),
-                tint = Ink.Wanted,
-                border = Color.Transparent,
-            )
-            Spacer(Modifier.width(Space.xxs))
         }
 
         app.pocketful.ui.components.CircleIconButton(
